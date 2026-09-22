@@ -296,6 +296,7 @@
 - 8081 端口被用户前次启动残留进程占用；验证用 8082 避开。用户如遇同样提示，结束旧终端进程或改用 `npm start -- --port 8082`
 - tsconfig 被 expo CLI 重写时误删 `.expo/types` / `expo-env.d.ts` include，已手工恢复
 - **Expo Go 版本不匹配**（用户报错）：手机应用商店装的 Expo Go 为 SDK 57，项目为 SDK 52 → `Project is incompatible with this version of Expo Go`。**决策**：手机改装 SDK 52 版 Expo Go（官方下载页 `expo.dev/go?sdkVersion=52&platform=android`）；暂不升级项目至 SDK 57（受本机 safe-delete 拦截 node_modules 删除所限，大版本升级依赖重装必失败）。**待办**：在可正常删除 node_modules 的环境执行 SDK 57 升级（手动删 node_modules 后 npx expo install expo@^57 + 依赖刷新），阶段二 dev build 前完成即可
+- **"main" has not been registered**（用户报错，commit `3058cc3`）：根因 = package.json 的 `main` 直接指向 `src/App.tsx`，但 App.tsx 只有 `export default`，未调用 `registerRootComponent`（Expo 默认模板 main 指向 `expo/AppEntry.js` 代为注册，手搭骨架直接指 App.tsx 时必须显式注册）。**修复**：`import { registerRootComponent } from 'expo'` + 文件末尾 `registerRootComponent(App)`。typecheck 通过。**手搭 Expo 骨架两大坑（均已踩）**：①缺运行时基础包（expo-asset 等）；②缺根组件注册。后续新项目建议直接 `create-expo-app` 生成再裁剪
 
 ---
 
