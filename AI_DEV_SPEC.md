@@ -125,7 +125,7 @@
 |--------|------|------|----------|------|
 | T1.1 | WebSocket 协议定义 | src/websocket/protocol.ts | ClientMessage/ServerMessage 按《项目文档》3.2 定义为 interface；含心跳 ping/pong 与错误码约定 | ✅已完成(2026-09-22, 提前至阶段零完成, commit b32b6b3) |
 | T1.2 | WebSocket 服务端 | server.ts + handler.ts | 连接建立/会话管理(sessionId)/消息分发/心跳/异常断开清理；非法消息返回 error 且不崩 | ✅已完成(2026-09-22, 自测 7/7 通过: 连接/error×2/pong/wsSessions/断开清理) |
-| T1.3 | 智谱 LLM 流式客户端 | llm/zhipuClient.ts | OpenAI 兼容接口调用 glm-4.7-flash，chatStream 流式 yield；系统 Prompt 从配置读取；超时与错误降级 | ⬜未开始 |
+| T1.3 | 智谱 LLM 流式客户端 | llm/zhipuClient.ts | OpenAI 兼容接口调用 glm-4.7-flash，chatStream 流式 yield；系统 Prompt 从配置读取；超时与错误降级 | ✅已完成(2026-09-22, src/services/llmService.ts；无Key错误路径自测通过；真实流式联调待 T0.5 Key) |
 | T1.4 | 讯飞 ASR 对接 | asr/xunfeiAsr.ts | 流式听写：接收 PCM 分片推送，返回中间/最终识别文本（isFinal）；鉴权签名正确 | ⬜未开始 |
 | T1.5 | 讯飞 TTS 对接 | tts/xunfeiTts.ts | 文本→音频，**按句合成**（句末标点 `，。！？` 触发）；返回格式 = **PCM 16kHz/16bit/单声道 + 44 字节 WAV 头 + base64**；AppID 鉴权正确；单句合成超时 ≤1.5s，失败时单句降级 Edge TTS（T1.6） | ⬜未开始 |
 | T1.6 | Edge TTS 备用 | tts/edgeTts.ts | 免 Key 合成可用，作为讯飞 TTS 失败时降级；配置开关选择 TTS 后端；输出格式对齐 T1.5（WAV 头 + PCM base64） | ⬜未开始 |
@@ -197,7 +197,7 @@
 > 每次会话结束更新此区，AI 新会话只读本区即可快速恢复上下文。
 
 **当前阶段**：阶段一 - 后端核心链路（阶段零已全部完成验收）
-**当前任务**：T1.2 已完成；下一项 T1.3 智谱 LLM 流式客户端
+**当前任务**：T1.2/T1.3 已完成；下一项 T1.4 讯飞 ASR 流式听写
 **已完成并验收**：T0.1, T0.2, T0.3, T0.4, T1.1
 **已完成待验收**：无
 **阻塞项**：T0.5 API Key 获取（智谱+讯飞，需用户注册申请，阻塞 T1.8 真实链路自测；阶段一代码可先写用 .env.example 占位）
@@ -308,6 +308,19 @@
 - **T1.2 自测 7/7 通过**（临时脚本已删，正式版等 T1.8）：①连接建立 ②非法 JSON→error ③非法结构→error ④服务未崩 ⑤ping→pong ⑥wsSessions=1 ⑦断开清理归零
 - 注意：8080 上跑着用户的 tsx watch dev 实例，热重载自动加载了 T1.2 新代码（自测即连该实例）；后续并行实例注意端口冲突
 - **下一步**：T1.3 智谱 LLM 流式客户端（D11 先核实 glm-4.7-flash QPS 与 OpenAI 兼容接口签名）
+
+### 2026-09-22（六续）— T1.2 推送完成 + T1.3 智谱 LLM 流式客户端完成
+- 网络恢复，T1.2 提交 `d5e5f3c` 已推送远程；`client/tsconfig.json` 被 expo CLI 再次重写已恢复（该 CLI 每次启动都可能删 `.expo/types`/`expo-env.d.ts` include，遇 diff 注意恢复）
+- **T1.3 D11 核实（web 搜索）**：GLM-4.7-Flash（2026-01-20 发布）永久免费、OpenAI 兼容、`https://open.bigmodel.cn/api/paas/v4`、模型名 `glm-4.7-flash`；**免费 API 限 1 并发**（关键约束）；混合思考模型流式 delta 含 `reasoning_content` 需过滤
+- **T1.3 实现**（`src/services/llmService.ts`，回调式 onDelta 直接对接 T1.7 按句切分）：
+  - openai SDK 指向 bigmodel baseURL；60s 超时 + maxRetries 1
+  - `SYSTEM_PROMPT`（140 字）：口语化、≤3 句、单句 ≤25 字、规范句末标点（为 T1.7 按句 TTS 切分服务）、禁 emoji/markdown/代码块
+  - **全局并发互斥**（promise 链串行队列）适配免费 1 并发限制
+  - `reasoning_content` 过滤（思考过程不进正文不下发 TTS）
+  - `LlmError` 统一错误类型（调用方映射 error(LLM_FAILED)）；AbortSignal 中断不算错误（T1.7 interrupt 用）
+  - max_tokens 512 + temperature 0.7 双保险控回复长度
+- **T1.3 自测**（Key 未配，按 D7 不 mock，仅测可测路径）：无 Key → LlmError('ZHIPU_API_KEY 未配置') ✅；系统提示词导出 ✅。**真实流式联调挂起至 T0.5 Key 到位**（届时 T1.8 一并补）
+- **下一步**：T1.4 讯飞 ASR 流式听写（D11 先核实 WebAPI 签名算法）
 
 ---
 
