@@ -126,7 +126,7 @@
 |--------|------|------|----------|------|
 | T1.1 | WebSocket 协议定义 | src/websocket/protocol.ts | ClientMessage/ServerMessage 按《项目文档》3.2 定义为 interface；含心跳 ping/pong 与错误码约定 | ✅已完成(2026-09-22, 提前至阶段零完成, commit b32b6b3) |
 | T1.2 | WebSocket 服务端 | server.ts + handler.ts | 连接建立/会话管理(sessionId)/消息分发/心跳/异常断开清理；非法消息返回 error 且不崩 | ✅已完成(2026-09-22, 自测 7/7 通过: 连接/error×2/pong/wsSessions/断开清理) |
-| T1.3 | 智谱 LLM 流式客户端 | llm/zhipuClient.ts | OpenAI 兼容接口调用 glm-4.7-flash，chatStream 流式 yield；系统 Prompt 从配置读取；超时与错误降级 | ✅已完成(2026-09-22, src/services/llmService.ts；无Key错误路径自测通过；真实流式联调待 T0.5 Key) |
+| T1.3 | 智谱 LLM 流式客户端 | llm/zhipuClient.ts | OpenAI 兼容接口调用 glm-4.7-flash，chatStream 流式 yield；系统 Prompt 从配置读取；超时与错误降级 | ✅已完成(2026-09-22, src/services/llmService.ts；**真实流式自测通过**：补 Key 后实测回复正常、耗时约 1s；thinking 禁用修复后正文完整) |
 | T1.4 | 讯飞 ASR 对接 | asr/xunfeiAsr.ts | 流式听写：接收 PCM 分片推送，返回中间/最终识别文本（isFinal）；鉴权签名正确 | ✅已完成(2026-09-22, src/services/asrService.ts；配置缺失错误路径自测通过；真实识别联调待 T0.5 Key) |
 | T1.5 | 讯飞 TTS 对接 | tts/xunfeiTts.ts | 文本→音频，**按句合成**（句末标点 `，。！？` 触发）；返回格式 = **PCM 16kHz/16bit/单声道 + 44 字节 WAV 头 + base64**；AppID 鉴权正确；单句合成超时 ≤1.5s，失败时单句降级 Edge TTS（T1.6） | ⬜未开始 |
 | T1.6 | Edge TTS 备用 | tts/edgeTts.ts | 免 Key 合成可用，作为讯飞 TTS 失败时降级；配置开关选择 TTS 后端；输出格式对齐 T1.5（WAV 头 + PCM base64） | ⬜未开始 |
@@ -251,6 +251,13 @@
 
 - **规范升级（X7 汇报规范）**：用户要求——完成工作后如实汇报"实现了什么功能/修复了什么 bug（含现象）"，禁废话。已加入出口门禁 X7（commit f59d979）
 - **踩坑记录（Windows 控制台乱码）**：用户在 cmd 运行 `npm run dev`，pino 日志中文/emoji 全部乱码（如 `鏈嶅姟宸叉寕杞?`）。根因：cmd 默认代码页 GBK(936)，Node 输出 UTF-8 字节。修复：dev 脚本前置 `chcp 65001>nul &&`（commit 4f6e9b0）。注意：仅改 dev 脚本；生产走 Linux + `npm start`（node dist）不受影响；若用户用 PowerShell 跑 dev，npm 仍默认经 cmd.exe 执行脚本，同样生效
+
+### 2026-09-22（续）— T1.3 真实链路自测与 thinking 踩坑
+- 用户补齐 ZHIPU_API_KEY（讯飞 Key 后补），T1.3 真实流式自测执行
+- **踩坑（思考耗尽 max_tokens）**：现象 = 流式连接成功但正文为空、reasoning_content 872 字；根因 = GLM-4.7-flash 默认 thinking.type=enabled（GLM-4.7 强制思考），思考与正文共用 max_tokens 输出额度，512 上限被思考耗尽。修复 = 请求体显式传 `thinking: {type: 'disabled'}` + max_tokens 提至 1024（官方建议 ≥1024）
+- **D11 核实（智谱官方文档 docs.bigmodel.cn 对话补全 API）**：thinking.type 枚举仅 enabled/disabled（无 auto），默认 enabled；thinking 为请求体顶层字段，openai SDK 类型不含此字段需透传（写法：基础参数走 ChatCompletionCreateParamsStreaming 类型 + 扩展字段后置 as 断言，@ts-expect-error 压不住对象字面量级多余属性检查）；文档未明说 thinking 计入 max_tokens，但实测行为支持
+- **429 间歇限流**：免费 flash 模型高峰期返回 429 code 1305"访问量过大"（非 Key 问题，Key 有效时 401 才是鉴权失败），重试可过；SDK maxRetries=1 已有基础重试，暂不加码，T1.7/T1.8 联调时观察
+- **自测结果**：修复后真实流式回复正常（"全程约 120 公里……"），耗时 1032ms，无思考、无 emoji/markdown，符合系统提示词约束；临时测试脚本已删
 
 ### 2026-09-22（续）— 工程计划排序与"先做什么/再做什么"
 - 用户发起会话："按门禁规范进行工程计划排序，先做什么？再做什么？然后维护进度文档"

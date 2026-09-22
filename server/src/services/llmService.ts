@@ -131,17 +131,24 @@ export async function streamLlmReply(
       let fullText = '';
       let reasoningChars = 0;
 
-      const stream = await client.chat.completions.create(
-        {
-          model: config.zhipu.model,
-          messages,
-          stream: true,
-          // 车机场景控成本：单轮回复上限（短回复是提示词要求 + 硬限制双保险）
-          max_tokens: 512,
-          temperature: 0.7,
-        },
-        { signal },
-      );
+      // 智谱扩展参数：关闭思维链（D11 核实 2026-09-22 官方文档）
+      //   - thinking.type 仅 enabled/disabled，默认 enabled，GLM-4.7 开启后强制思考
+      //   - 思考内容与正文共用 max_tokens 输出额度（实测 872 字思考耗尽 512 上限导致正文为空）
+      //   - 车机低延迟场景必须禁用；openai SDK 类型不含此字段，故基础参数走标准类型、扩展字段后置断言透传
+      const baseParams: OpenAI.Chat.ChatCompletionCreateParamsStreaming = {
+        model: config.zhipu.model,
+        messages,
+        stream: true,
+        // 思考已禁用，此上限仅约束正文；官方建议 >=1024
+        max_tokens: 1024,
+        temperature: 0.7,
+      };
+      const params = {
+        ...baseParams,
+        thinking: { type: 'disabled' },
+      } as OpenAI.Chat.ChatCompletionCreateParamsStreaming;
+
+      const stream = await client.chat.completions.create(params, { signal });
 
       for await (const chunk of stream) {
         // 思考过程（混合思考模型）：忽略，不进正文
