@@ -126,7 +126,7 @@
 | T1.1 | WebSocket 协议定义 | src/websocket/protocol.ts | ClientMessage/ServerMessage 按《项目文档》3.2 定义为 interface；含心跳 ping/pong 与错误码约定 | ✅已完成(2026-09-22, 提前至阶段零完成, commit b32b6b3) |
 | T1.2 | WebSocket 服务端 | server.ts + handler.ts | 连接建立/会话管理(sessionId)/消息分发/心跳/异常断开清理；非法消息返回 error 且不崩 | ✅已完成(2026-09-22, 自测 7/7 通过: 连接/error×2/pong/wsSessions/断开清理) |
 | T1.3 | 智谱 LLM 流式客户端 | llm/zhipuClient.ts | OpenAI 兼容接口调用 glm-4.7-flash，chatStream 流式 yield；系统 Prompt 从配置读取；超时与错误降级 | ✅已完成(2026-09-22, src/services/llmService.ts；无Key错误路径自测通过；真实流式联调待 T0.5 Key) |
-| T1.4 | 讯飞 ASR 对接 | asr/xunfeiAsr.ts | 流式听写：接收 PCM 分片推送，返回中间/最终识别文本（isFinal）；鉴权签名正确 | ⬜未开始 |
+| T1.4 | 讯飞 ASR 对接 | asr/xunfeiAsr.ts | 流式听写：接收 PCM 分片推送，返回中间/最终识别文本（isFinal）；鉴权签名正确 | ✅已完成(2026-09-22, src/services/asrService.ts；配置缺失错误路径自测通过；真实识别联调待 T0.5 Key) |
 | T1.5 | 讯飞 TTS 对接 | tts/xunfeiTts.ts | 文本→音频，**按句合成**（句末标点 `，。！？` 触发）；返回格式 = **PCM 16kHz/16bit/单声道 + 44 字节 WAV 头 + base64**；AppID 鉴权正确；单句合成超时 ≤1.5s，失败时单句降级 Edge TTS（T1.6） | ⬜未开始 |
 | T1.6 | Edge TTS 备用 | tts/edgeTts.ts | 免 Key 合成可用，作为讯飞 TTS 失败时降级；配置开关选择 TTS 后端；输出格式对齐 T1.5（WAV 头 + PCM base64） | ⬜未开始 |
 | T1.7 | 流式管线编排 | handler.ts 集成 | ASR isFinal → LLM 流式 → **遇句末标点立即触发该句 TTS 合成（不等 LLM 流收完）** → 推送 llm_chunk + tts_audio → 客户端按句播放；全链路消息时序正确（asr_result → 多组 llm_chunk/tts_audio 对 → 最终结束标记）；分句策略可配（标点集、句长上限） | ⬜未开始 |
@@ -197,7 +197,7 @@
 > 每次会话结束更新此区，AI 新会话只读本区即可快速恢复上下文。
 
 **当前阶段**：阶段一 - 后端核心链路（阶段零已全部完成验收）
-**当前任务**：T1.2/T1.3 已完成；下一项 T1.4 讯飞 ASR 流式听写
+**当前任务**：T1.2/T1.3/T1.4 已完成；下一项 T1.5 TTS 按句合成
 **已完成并验收**：T0.1, T0.2, T0.3, T0.4, T1.1
 **已完成待验收**：无
 **阻塞项**：T0.5 API Key 获取（智谱+讯飞，需用户注册申请，阻塞 T1.8 真实链路自测；阶段一代码可先写用 .env.example 占位）
@@ -321,6 +321,18 @@
   - max_tokens 512 + temperature 0.7 双保险控回复长度
 - **T1.3 自测**（Key 未配，按 D7 不 mock，仅测可测路径）：无 Key → LlmError('ZHIPU_API_KEY 未配置') ✅；系统提示词导出 ✅。**真实流式联调挂起至 T0.5 Key 到位**（届时 T1.8 一并补）
 - **下一步**：T1.4 讯飞 ASR 流式听写（D11 先核实 WebAPI 签名算法）
+
+### 2026-09-22（七续）— T1.4 讯飞 ASR 流式听写客户端完成
+- **D11 核实**：端点 `wss://iat-api.xfyun.cn/v2/iat`；鉴权 = URL 参数 host/date/authorization（HMAC-SHA256 签名原文 `host\ndate\nGET /v2/iat HTTP/1.1`，RFC1123 日期）；三态帧协议（首帧 business/data.status=0 → 中间帧 status=1 → 尾帧 status=2）；结果帧 pgs=rpl/apd 动态修正；单会话 ≤60s；帧间隔 40-1000ms（客户端 200ms 分片天然满足）
+- **实现**（`src/services/asrService.ts`）：
+  - `createAsrSession(callbacks)` → `{write(chunk), finish(), abort()}` 句柄式接口（T1.7 管线对接：audio 消息→write，isLast→finish，interrupt→abort）
+  - business 参数：zh_cn/iat/mandarin + `vad_eos=800ms`（config 驱动）+ `dwa=wpgs` 动态修正
+  - **wpgs 修正算法**：按子句 sn 存 Map，rpl 时删 bg..ed 再写当前句，中间/最终文本均按 sn 排序拼接
+  - onPartial（中间全量文本）/onFinal（最终）/onError（AsrError 统一类型）
+  - 60s 超时兜底；断链/非零 code/JSON 解析失败全量转 onError；配置缺失走 onError 不抛同步异常
+  - 空会话 finish() 不发尾帧直接关闭；abort 不发尾帧（interrupt 语义）
+- **自测**：配置缺失 → onError('讯飞 ASR 配置缺失') ✅（真实识别联调待 T0.5 Key，T1.8 一并补）
+- **下一步**：T1.5 讯飞 TTS / Edge TTS 按句合成（D11 核实两者接口）
 
 ---
 
