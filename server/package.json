@@ -1,0 +1,42 @@
+{
+  "name": "voice-car-assistant-server",
+  "version": "0.1.0",
+  "description": "车机语音问答助手 - 后端服务（WebSocket + 智谱 LLM + 讯飞 ASR/TTS）",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "openai": "^4.71.0",
+    "pino": "^9.5.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.9.0",
+    "@types/ws": "^8.5.13",
+    "pino-pretty": "^11.3.0",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "voice-assistant",
+    "websocket",
+    "asr",
+    "tts",
+    "llm",
+    "car-infotainment"
+  ],
+  "license": "MIT"
+}

@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "Voice Car Assistant",
+    "slug": "voice-car-assistant",
+    "version": "0.1.0",
+    "orientation": "landscape",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#1a1a1a",
+      "resizeMode": "contain"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.voicecar.assistant"
+    },
+    "android": {
+      "package": "com.voicecar.assistant",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#1a1a1a"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
