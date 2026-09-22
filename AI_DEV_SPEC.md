@@ -295,6 +295,7 @@
 - **环境限制（重要踩坑）**：本机 safe-delete 安全组件拦截 npm 对 node_modules 的删除操作，导致 `react-native 0.76.5 → 0.76.9` 升级失败（`[safe-delete] 操作失败: trash`）。处理：回退 package.json 声明到 0.76.5，与 lockfile/node_modules 保持一致；expo 警告"建议 0.76.9"**不阻塞开发**，后续如需升级须在能正常删除 node_modules 的环境执行（或手动删 node_modules 后重装）
 - 8081 端口被用户前次启动残留进程占用；验证用 8082 避开。用户如遇同样提示，结束旧终端进程或改用 `npm start -- --port 8082`
 - tsconfig 被 expo CLI 重写时误删 `.expo/types` / `expo-env.d.ts` include，已手工恢复
+- **Expo Go 版本不匹配**（用户报错）：手机应用商店装的 Expo Go 为 SDK 57，项目为 SDK 52 → `Project is incompatible with this version of Expo Go`。**决策**：手机改装 SDK 52 版 Expo Go（官方下载页 `expo.dev/go?sdkVersion=52&platform=android`）；暂不升级项目至 SDK 57（受本机 safe-delete 拦截 node_modules 删除所限，大版本升级依赖重装必失败）。**待办**：在可正常删除 node_modules 的环境执行 SDK 57 升级（手动删 node_modules 后 npx expo install expo@^57 + 依赖刷新），阶段二 dev build 前完成即可
 
 ---
 
