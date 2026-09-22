@@ -105,7 +105,7 @@
 | T0.1 | 建立门禁式规范 | 本文件 | 本文件存在且四道门禁完整 | 🟢已验收(用户允许推进) |
 | T0.2 | Git 仓库初始化 | 仓库 | git init + .gitignore（必须含 .env / node_modules / android build）+ 首次提交 | ✅已完成(2026-09-22, commit 18605bf) |
 | T0.3 | server 骨架 | server/ | Node.js + TypeScript + Express + ws，按 2.3 目录结构建好，tsconfig strict，npm run dev 可启动空服务 | ✅已完成(2026-09-22, /health 与 / 端点 200 OK, commit b32b6b3) |
-| T0.4 | client 骨架 | client/ | Expo init（RN + TS），按 2.3 目录结构建好 src 子目录，Expo Go 能加载空白页 | 🟡进行中(2026-09-22, 代码/依赖/typecheck 完成, commit b32b6b3；待用户在物理设备用 Expo Go 扫码验证) |
+| T0.4 | client 骨架 | client/ | Expo init（RN + TS），按 2.3 目录结构建好 src 子目录，Expo Go 能加载空白页 | 🟢已验收(2026-09-22, 用户确认占位页显示, 真机 Expo Go SDK52 验证通过) |
 | T0.5 | API Key 获取（用户操作） | .env | 智谱 Key + 讯飞 AppID/APISecret/APIKey 已申请；server/.env.example 写齐变量名 | 🔴阻塞(待用户) |
 | T0.6 | 云服务器准备（用户操作，可后置） | 服务器 | Ubuntu 22.04 + Node 20 就绪（不阻塞阶段一本地开发） | ⏸️暂停(联调部署时再要) |
 
@@ -196,14 +196,14 @@
 
 > 每次会话结束更新此区，AI 新会话只读本区即可快速恢复上下文。
 
-**当前阶段**：阶段零 - 立项与骨架（接近完成）
-**当前任务**：T0.2/T0.3/T1.1 已完成；T0.4 骨架完成（🟡进行中待用户在物理设备用 Expo Go 验证空白页）；T0.1 已验收、T0.5/T0.6 跳过
-**已完成并验收**：T0.1, T0.2, T0.3, T1.1
-**已完成待验收**：T0.4（Expo Go 验证需用户操作）
+**当前阶段**：阶段一 - 后端核心链路（阶段零已全部完成验收）
+**当前任务**：T1.2 WebSocket 服务端（进行中）
+**已完成并验收**：T0.1, T0.2, T0.3, T0.4, T1.1
+**已完成待验收**：无
 **阻塞项**：T0.5 API Key 获取（智谱+讯飞，需用户注册申请，阻塞 T1.8 真实链路自测；阶段一代码可先写用 .env.example 占位）
-**本地仓库**：已初始化（commit `18605bf` + `b32b6b3` + `a68620b`，main 分支）
+**本地仓库**：已初始化（main 分支）
 **远程仓库**：https://github.com/Yoozzzzzz/voice-car-assistant.git（origin，2026-09-22 绑定并首推 main）
-**下一步**：用户在物理设备用 Expo Go 扫描验证 T0.4 → 申请 T0.5 API Key 填入 server/.env → 开工 T1.2 WS 服务（依赖 T1.1 协议）
+**下一步**：T1.2 WS 服务端 → T1.3/T1.4/T1.5/T1.6 外部对接 → T1.7 流式编排 → T1.8 自测脚本
 
 **关键技术调整（2026-09-22 方案评审落地，已写入对应任务验收标准）**：
 - T1.5/T1.7：按句切分 TTS（WAV 头+PCM base64），LLM 流遇句末标点立即合成不等收完
