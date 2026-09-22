@@ -289,6 +289,13 @@
 - 用户提供远程地址，绑定 `origin` = https://github.com/Yoozzzzzz/voice-car-assistant.git，首推 main（3 个提交：`18605bf` / `b32b6b3` / `a68620b`）成功
 - 用户确立提交纪律：**每完成一个小节点即 commit + push**（已写入 D10 门禁）
 
+### 2026-09-22（四续）— 修复 expo start 报错 + 环境限制记录
+- 用户报错：`expo start` → `The required package 'expo-asset' cannot be found`。**根因**：T0.4 手写 package.json 缺 Expo 运行时基础包（`create-expo-app` 模板默认携带，手搭骨架易漏）
+- **修复**（commit `8ed177f`）：`npx expo install expo-asset expo-font expo-constants expo-file-system`（自动匹配 SDK 52 版本，并在 app.json 注入 config plugins）；验证：Metro 于 8082 端口正常启动（`Starting Metro Bundler / Waiting on http://localhost:8082`）✅
+- **环境限制（重要踩坑）**：本机 safe-delete 安全组件拦截 npm 对 node_modules 的删除操作，导致 `react-native 0.76.5 → 0.76.9` 升级失败（`[safe-delete] 操作失败: trash`）。处理：回退 package.json 声明到 0.76.5，与 lockfile/node_modules 保持一致；expo 警告"建议 0.76.9"**不阻塞开发**，后续如需升级须在能正常删除 node_modules 的环境执行（或手动删 node_modules 后重装）
+- 8081 端口被用户前次启动残留进程占用；验证用 8082 避开。用户如遇同样提示，结束旧终端进程或改用 `npm start -- --port 8082`
+- tsconfig 被 expo CLI 重写时误删 `.expo/types` / `expo-env.d.ts` include，已手工恢复
+
 ---
 
 ## 使用说明（给 AI）
