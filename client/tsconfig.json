@@ -14,7 +14,9 @@
     "moduleResolution": "bundler",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": [
+        "src/*"
+      ]
     }
   },
   "include": [
@@ -23,5 +25,10 @@
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
   ],
-  "exclude": ["node_modules", "android", "ios", "dist"]
+  "exclude": [
+    "node_modules",
+    "android",
+    "ios",
+    "dist"
+  ]
 }
