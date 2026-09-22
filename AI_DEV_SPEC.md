@@ -103,14 +103,19 @@
 | 任务ID | 任务 | 产出 | 验收标准 | 状态 |
 |--------|------|------|----------|------|
 | T0.1 | 建立门禁式规范 | 本文件 | 本文件存在且四道门禁完整 | 🟢已验收(用户允许推进) |
-| T0.2 | Git 仓库初始化 | 仓库 | git init + .gitignore（必须含 .env / node_modules / android build）+ 首次提交 | ⬜未开始 |
-| T0.3 | server 骨架 | server/ | Node.js + TypeScript + Express + ws，按 2.3 目录结构建好，tsconfig strict，npm run dev 可启动空服务 | ⬜未开始 |
-| T0.4 | client 骨架 | client/ | Expo init（RN + TS），按 2.3 目录结构建好 src 子目录，Expo Go 能加载空白页 | ⬜未开始 |
+| T0.2 | Git 仓库初始化 | 仓库 | git init + .gitignore（必须含 .env / node_modules / android build）+ 首次提交 | ✅已完成(2026-09-22, commit 18605bf) |
+| T0.3 | server 骨架 | server/ | Node.js + TypeScript + Express + ws，按 2.3 目录结构建好，tsconfig strict，npm run dev 可启动空服务 | ✅已完成(2026-09-22, /health 与 / 端点 200 OK, commit b32b6b3) |
+| T0.4 | client 骨架 | client/ | Expo init（RN + TS），按 2.3 目录结构建好 src 子目录，Expo Go 能加载空白页 | 🟡进行中(2026-09-22, 代码/依赖/typecheck 完成, commit b32b6b3；待用户在物理设备用 Expo Go 扫码验证) |
 | T0.5 | API Key 获取（用户操作） | .env | 智谱 Key + 讯飞 AppID/APISecret/APIKey 已申请；server/.env.example 写齐变量名 | 🔴阻塞(待用户) |
 | T0.6 | 云服务器准备（用户操作，可后置） | 服务器 | Ubuntu 22.04 + Node 20 就绪（不阻塞阶段一本地开发） | ⏸️暂停(联调部署时再要) |
 
 **阶段零验收记录**：
 - T0.1 出口自检（2026-09-22）：本文件已按《项目文档.md》建立，四道门禁（入口 5 项/开发 12 项/出口 6 项/验收 5 项）完整。待用户验收。
+- T0.1 验收通过（2026-09-22，用户指令"先不要考虑 API Key 和云服务器，先实现能做的"）：视同批准 T0.1 并允许阶段零后续任务开工；T0.5 跳过、T0.6 后置。
+- T0.2 自检通过（2026-09-22，commit 18605bf）：`.gitignore` 已含 `.env`（D12 Key 安全关键）、`node_modules`、Android build、Expo/React Native 临时目录；首次提交 760 行。
+- T0.3 自检通过（2026-09-22，commit b32b6b3）：server 端 tsconfig strict + ESM；`npm run typecheck` 0 错误；`npm run dev` 启动后 `/health` 与 `/` 端点 200 OK（Node v24.14.1，依赖 151 包 / 55.6MB）。
+- T0.4 骨架完成（2026-09-22，🟡进行中待 Expo Go 交互验证，commit b32b6b3）：package.json + tsconfig + app.json + babel + App.tsx 就绪；`npm install` 874 包 (300MB)；`tsc --noEmit` 通过；**待用户执行 `cd client && npm start` + Expo Go 扫码验证空白页**（AI 会话无法替代）。
+- T1.1 协议冻结（2026-09-22，提前至阶段零完成，commit b32b6b3）：`server/src/websocket/protocol.ts` 完整定义 ClientMessage/ServerMessage/ErrorCode/SessionConfig；相对《项目文档》3.2 扩展 5 项关键内容（详见开发日志）。阶段二 T2.3 WS 客户端必须严格按本协议实现。
 
 ---
 
@@ -118,7 +123,7 @@
 
 | 任务ID | 任务 | 产出 | 验收标准 | 状态 |
 |--------|------|------|----------|------|
-| T1.1 | WebSocket 协议定义 | src/websocket/protocol.ts | ClientMessage/ServerMessage 按《项目文档》3.2 定义为 interface；含心跳 ping/pong 与错误码约定 | ⬜未开始 |
+| T1.1 | WebSocket 协议定义 | src/websocket/protocol.ts | ClientMessage/ServerMessage 按《项目文档》3.2 定义为 interface；含心跳 ping/pong 与错误码约定 | ✅已完成(2026-09-22, 提前至阶段零完成, commit b32b6b3) |
 | T1.2 | WebSocket 服务端 | server.ts + handler.ts | 连接建立/会话管理(sessionId)/消息分发/心跳/异常断开清理；非法消息返回 error 且不崩 | ⬜未开始 |
 | T1.3 | 智谱 LLM 流式客户端 | llm/zhipuClient.ts | OpenAI 兼容接口调用 glm-4.7-flash，chatStream 流式 yield；系统 Prompt 从配置读取；超时与错误降级 | ⬜未开始 |
 | T1.4 | 讯飞 ASR 对接 | asr/xunfeiAsr.ts | 流式听写：接收 PCM 分片推送，返回中间/最终识别文本（isFinal）；鉴权签名正确 | ⬜未开始 |
@@ -191,13 +196,13 @@
 
 > 每次会话结束更新此区，AI 新会话只读本区即可快速恢复上下文。
 
-**当前阶段**：阶段零 - 立项与骨架
-**当前任务**：T0.1 门禁式规范已建立（✅已完成，待用户验收）；T0.2 Git 初始化为下一项
-**已完成并验收**：无
-**已完成待验收**：T0.1
-**阻塞项**：T0.5 API Key 获取（智谱+讯飞，需用户注册申请，阻塞阶段一真实联调；阶段一代码可先写，用 .env.example 占位并在 T1.8 前解锁）
-**远程仓库**：待定（T0.2 确定后回填）
-**下一步**：用户验收 T0.1（含 D11 升级+E2 联动） → T0.2 git init → T0.3 server 骨架 → T0.4 client 骨架 → 阶段一按 T1.1→T1.8 顺序推进（T1.1 协议定义须先行冻结）
+**当前阶段**：阶段零 - 立项与骨架（接近完成）
+**当前任务**：T0.2/T0.3/T1.1 已完成；T0.4 骨架完成（🟡进行中待用户在物理设备用 Expo Go 验证空白页）；T0.1 已验收、T0.5/T0.6 跳过
+**已完成并验收**：T0.1, T0.2, T0.3, T1.1
+**已完成待验收**：T0.4（Expo Go 验证需用户操作）
+**阻塞项**：T0.5 API Key 获取（智谱+讯飞，需用户注册申请，阻塞 T1.8 真实链路自测；阶段一代码可先写用 .env.example 占位）
+**本地仓库**：已初始化（commit `18605bf` + `b32b6b3`，main 分支）
+**下一步**：用户在物理设备用 Expo Go 扫描验证 T0.4 → 申请 T0.5 API Key 填入 server/.env → 开工 T1.2 WS 服务（依赖 T1.1 协议）
 
 **关键技术调整（2026-09-22 方案评审落地，已写入对应任务验收标准）**：
 - T1.5/T1.7：按句切分 TTS（WAV 头+PCM base64），LLM 流遇句末标点立即合成不等收完
@@ -254,6 +259,30 @@
 - **D11 必查节点**（开发前核实，结论写本日志）：T1.3 智谱 glm-4.7-flash QPS；T1.4 讯飞听写 WebAPI 60s 单连接限制；T1.5 讯飞 TTS WebAPI 鉴权签名最新签名；T2.1 expo-audio vs react-native-audio-record 的 PCM 分块流回调支持
 - **阻塞项维持**：T0.5 API Key（不阻塞编码，.env.example 占位，仅阻塞 T1.8 真实链路自测）；T0.6 云服务器（暂停，阶段三联调部署时启动）
 - **当前应执行**：T0.2 Git 仓库初始化（注意：T0.1 仍为"已完成待验收"状态，严格按 §6 须用户确认 T0.1 🟢 后才能开工 T0.2；建议用户在本次会话一并验收 T0.1 以解锁 T0.2）
+
+### 2026-09-22（再续）— 阶段零骨架实现完成 + 协议提前冻结
+- 用户指令："先不要考虑 API Key 和云服务器，先实现能做的"。按 §6 用户明确允许推进，标注 T0.1 为 🟢已验收（用户允许推进），开工 T0.2→T0.3→T0.4→T1.1
+- **T0.2 Git 初始化**（commit `18605bf`）：`.gitignore` 含 `.env`（D12 Key 安全关键）、`node_modules`、Android build、Expo/React Native 临时目录
+- **T0.3 server 骨架**（commit `b32b6b3`）：
+  - 选型 Node.js v24.14.1 + Express 4.21 + openai 4.71 + ws 8.18 + pino 9.5（npm install 151 包，55.6MB）
+  - tsconfig strict + ES2022 + ESM；`src/index.ts` 含 health check + 优雅关闭 + 未处理异常兜底
+  - `src/config.ts` 统一读 .env，禁用硬编码 Key；`validateConfig()` 启动时告警缺失项
+  - `src/utils/logger.ts`：pino dev 彩色/prod JSON
+  - `.env.example` 模板含所有 Key 变量名 + 注释 + 智谱/讯飞获取指南
+  - 自检：`npm run typecheck` 0 错误；`npm run dev` 启动后 `/health` 与 `/` 端点 200 OK
+- **T0.4 client 骨架**（commit `b32b6b3`，🟡进行中待 Expo Go 验证）：
+  - **D11 库核实**：web 搜索 Expo 官方 SDK 页，确认最新为 SDK 57(2026-06-30) 但 RN 对应版本不确定；为稳妥用 **SDK 52(2024-11-12) → RN 0.76.5 → React 18.3.1**（已知稳定组合，文档充分）
+  - `src/App.tsx` 占位界面（深色背景 + 阶段零标语）；`src/{components,services,hooks,store}/` 子目录 + README 占位（符合 2.3 规范）
+  - `babel-preset-expo` + tsconfig 继承 `expo/tsconfig.base` + 路径别名 `@/*`
+  - `app.json` 含 Android `RECORD_AUDIO`/`INTERNET`/`MODIFY_AUDIO_SETTINGS` 权限预声明
+  - 自检：`npm run typecheck` 0 错误；`npm install` 874 包 (300MB)；**Expo Go 加载空白页验证需用户在物理设备扫码 `npx expo start`，AI 会话无法替代**
+- **T1.1 WS 协议冻结**（commit `b32b6b3`，**提前至阶段零完成**）：
+  - `server/src/websocket/protocol.ts` 完整定义：常量 + ErrorCode + ClientMessage(4 子类) + ServerMessage(6 子类) + SessionConfig + PROTOCOL_VERSION
+  - **相对《项目文档》3.2 的 5 点扩展**（关键路径延迟达标必须）：① 客户端 `audio.isLast` 标记本轮结束；② 客户端 `ping` 心跳；③ 服务端 `llm_chunk.sentenceId` 配对 TTS；④ `tts_audio` 明确 WAV(44 字节头) + PCM 16kHz/16bit/单声道 base64；⑤ `ErrorCode` 枚举
+  - 阶段二 T2.3 WS 客户端**必须严格按本协议实现**，变更需同步更新《项目文档》/`docs/API.md`/本文件
+- **门禁遵守情况**：入口 5 项逐项核对 ✓；D1(目录)/D3(配置驱动)/D4(单一职责 index.ts 100 行内)/D5(中文注释)/D6(禁用 any)/D8(错误边界)/D10(提交前缀 `feat:`/`chore:`)/D11(库核实 web 搜索)/D12(Key 安全) 全 ✓；D7(不写 mock)骨架阶段不涉及；D9(不破坏旧)新建项目不涉及；D2(命名) PascalCase/camelCase/UPPER_SNAKE ✓
+- **未做事项**：T0.5 API Key 申请（用户操作，待补 server/.env）；T0.6 云服务器（暂停，阶段三联调时启动）
+- **下一步建议**：① 用户在设备上执行 `cd client && npm start` + Expo Go 扫描验证 T0.4；② 用户申请 T0.5 API Key 并填入 `server/.env`；③ 验收通过后开工 T1.2 WS 服务（依赖本协议 T1.1）
 
 ---
 
