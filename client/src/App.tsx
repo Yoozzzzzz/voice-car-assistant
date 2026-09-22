@@ -1,4 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
+import { registerRootComponent } from 'expo';
 import { StyleSheet, Text, View } from 'react-native';
 
 /**
@@ -26,6 +27,12 @@ export default function App() {
     </View>
   );
 }
+
+/**
+ * 注册根组件：package.json 的 main 直接指向本文件，
+ * 必须显式调用 registerRootComponent（否则报 "main" has not been registered）
+ */
+registerRootComponent(App);
 
 const styles = StyleSheet.create({
   container: {
