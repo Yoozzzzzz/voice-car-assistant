@@ -17,6 +17,7 @@ import 'dotenv/config';
 import express from 'express';
 import { logger } from './utils/logger.js';
 import { config, validateConfig } from './config.js';
+import { initWebSocketServer, shutdownWebSocket, sessionManager } from './websocket/wsServer.js';
 
 // 启动校验：缺失 Key 仅警告不阻塞（骨架阶段允许，阶段一联调前必须补齐）
 validateConfig();
@@ -28,12 +29,13 @@ const HOST = config.server.host;
 // 中间件：JSON 解析
 app.use(express.json());
 
-// 健康检查
+// 健康检查（含 WebSocket 会话数）
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     timestamp: Date.now(),
     uptime: Math.round(process.uptime()),
+    wsSessions: sessionManager.size,
   });
 });
 
@@ -42,8 +44,8 @@ app.get('/', (_req, res) => {
   res.json({
     name: 'voice-car-assistant-server',
     version: '0.1.0',
-    stage: 'zero-skeleton',
-    endpoints: ['/health', '/ws (pending T1.2)'],
+    stage: 'stage1-ws-server',
+    endpoints: ['/health', '/ws'],
     nodeVersion: process.version,
   });
 });
@@ -53,16 +55,18 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Not Found', path: req.path });
 });
 
-// 启动 HTTP 服务
+// 启动 HTTP 服务，并挂载 WebSocket（T1.2）
 const server = app.listen(PORT, HOST, () => {
   logger.info(`🚀 Server started on http://${HOST}:${PORT}`);
   logger.info(`   Health: http://${HOST}:${PORT}/health`);
-  logger.info(`   Stage:  零（骨架就绪）→ 阶段一待开工`);
+  logger.info(`   Stage:  一（WebSocket 服务就绪）`);
 });
+const wss = initWebSocketServer(server);
 
 // 优雅关闭（D8 错误边界）
 const shutdown = (signal: string): void => {
   logger.info(`Received ${signal}, shutting down gracefully...`);
+  shutdownWebSocket(wss); // 先关 WebSocket（通知客户端 + 停心跳定时器）
   server.close(() => {
     logger.info('HTTP server closed');
     process.exit(0);

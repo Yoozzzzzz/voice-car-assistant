@@ -124,7 +124,7 @@
 | 任务ID | 任务 | 产出 | 验收标准 | 状态 |
 |--------|------|------|----------|------|
 | T1.1 | WebSocket 协议定义 | src/websocket/protocol.ts | ClientMessage/ServerMessage 按《项目文档》3.2 定义为 interface；含心跳 ping/pong 与错误码约定 | ✅已完成(2026-09-22, 提前至阶段零完成, commit b32b6b3) |
-| T1.2 | WebSocket 服务端 | server.ts + handler.ts | 连接建立/会话管理(sessionId)/消息分发/心跳/异常断开清理；非法消息返回 error 且不崩 | ⬜未开始 |
+| T1.2 | WebSocket 服务端 | server.ts + handler.ts | 连接建立/会话管理(sessionId)/消息分发/心跳/异常断开清理；非法消息返回 error 且不崩 | ✅已完成(2026-09-22, 自测 7/7 通过: 连接/error×2/pong/wsSessions/断开清理) |
 | T1.3 | 智谱 LLM 流式客户端 | llm/zhipuClient.ts | OpenAI 兼容接口调用 glm-4.7-flash，chatStream 流式 yield；系统 Prompt 从配置读取；超时与错误降级 | ⬜未开始 |
 | T1.4 | 讯飞 ASR 对接 | asr/xunfeiAsr.ts | 流式听写：接收 PCM 分片推送，返回中间/最终识别文本（isFinal）；鉴权签名正确 | ⬜未开始 |
 | T1.5 | 讯飞 TTS 对接 | tts/xunfeiTts.ts | 文本→音频，**按句合成**（句末标点 `，。！？` 触发）；返回格式 = **PCM 16kHz/16bit/单声道 + 44 字节 WAV 头 + base64**；AppID 鉴权正确；单句合成超时 ≤1.5s，失败时单句降级 Edge TTS（T1.6） | ⬜未开始 |
@@ -197,7 +197,7 @@
 > 每次会话结束更新此区，AI 新会话只读本区即可快速恢复上下文。
 
 **当前阶段**：阶段一 - 后端核心链路（阶段零已全部完成验收）
-**当前任务**：T1.2 WebSocket 服务端（进行中）
+**当前任务**：T1.2 已完成；下一项 T1.3 智谱 LLM 流式客户端
 **已完成并验收**：T0.1, T0.2, T0.3, T0.4, T1.1
 **已完成待验收**：无
 **阻塞项**：T0.5 API Key 获取（智谱+讯飞，需用户注册申请，阻塞 T1.8 真实链路自测；阶段一代码可先写用 .env.example 占位）
@@ -297,6 +297,17 @@
 - tsconfig 被 expo CLI 重写时误删 `.expo/types` / `expo-env.d.ts` include，已手工恢复
 - **Expo Go 版本不匹配**（用户报错）：手机应用商店装的 Expo Go 为 SDK 57，项目为 SDK 52 → `Project is incompatible with this version of Expo Go`。**决策**：手机改装 SDK 52 版 Expo Go（官方下载页 `expo.dev/go?sdkVersion=52&platform=android`）；暂不升级项目至 SDK 57（受本机 safe-delete 拦截 node_modules 删除所限，大版本升级依赖重装必失败）。**待办**：在可正常删除 node_modules 的环境执行 SDK 57 升级（手动删 node_modules 后 npx expo install expo@^57 + 依赖刷新），阶段二 dev build 前完成即可
 - **"main" has not been registered**（用户报错，commit `3058cc3`）：根因 = package.json 的 `main` 直接指向 `src/App.tsx`，但 App.tsx 只有 `export default`，未调用 `registerRootComponent`（Expo 默认模板 main 指向 `expo/AppEntry.js` 代为注册，手搭骨架直接指 App.tsx 时必须显式注册）。**修复**：`import { registerRootComponent } from 'expo'` + 文件末尾 `registerRootComponent(App)`。typecheck 通过。**手搭 Expo 骨架两大坑（均已踩）**：①缺运行时基础包（expo-asset 等）；②缺根组件注册。后续新项目建议直接 `create-expo-app` 生成再裁剪
+
+### 2026-09-22（五续）— 阶段零验收收官 + T1.2 WebSocket 服务端完成
+- 用户确认 T0.4 验收通过（真机 Expo Go 显示占位页）→ **阶段零全部完成**（T0.1/T0.2/T0.3/T0.4/T1.1 均 🟢；T0.5 跳过待 Key、T0.6 暂停）
+- **T1.2 WebSocket 服务端**（三模块拆分，D4 单一职责）：
+  - `src/websocket/session.ts`：SessionManager（sessionId 生成 uuid v4/首条消息绑定/同 sessionId 重连踢旧连接/Map 单机存储，阶段三可换 Redis）
+  - `src/websocket/handler.ts`：JSON 解析→类型守卫校验（D6 无 any 断言）→按 type 路由；非法消息回 error(INVALID_MESSAGE) 不崩；ping→pong；audio/text/control 记录日志等 T1.4/T1.7 接入（D7 不写 mock 不伪造回复）
+  - `src/websocket/wsServer.ts`：**双层心跳**——协议层 ws ping/pong 帧（30s 间隔，穿透 NAT）+ 应用层 ping 消息（60s 超时断开）；close/error 全量清理；优雅关闭 shutdownWebSocket
+  - `index.ts`：挂载 /ws、/health 增加 wsSessions、stage 更新 stage1-ws-server
+- **T1.2 自测 7/7 通过**（临时脚本已删，正式版等 T1.8）：①连接建立 ②非法 JSON→error ③非法结构→error ④服务未崩 ⑤ping→pong ⑥wsSessions=1 ⑦断开清理归零
+- 注意：8080 上跑着用户的 tsx watch dev 实例，热重载自动加载了 T1.2 新代码（自测即连该实例）；后续并行实例注意端口冲突
+- **下一步**：T1.3 智谱 LLM 流式客户端（D11 先核实 glm-4.7-flash QPS 与 OpenAI 兼容接口签名）
 
 ---
 
