@@ -41,7 +41,7 @@
 | D7 | 不写 mock | 不伪造 ASR/TTS/LLM 返回值；未拿到 Key 前用明确标注的占位并在本文件记录，不假装链路已通 |
 | D8 | 错误边界 | 外部依赖（网络/WebSocket/讯飞/智谱）必须有 try-catch、超时控制与降级路径 |
 | D9 | 不破坏旧 | 新增功能不影响已验收功能，如破坏必须先回滚或同步修复 |
-| D10 | Git 提交 | 每完成一个子任务提交一次，commit message 用 `feat/fix/docs:` 前缀；.env 永不入库 |
+| D10 | Git 提交 | 每完成一个子任务提交一次，commit message 用 `feat/fix/docs:` 前缀；.env 永不入库；**每完成一个小节点即 commit + push 到远程（用户要求，2026-09-22）** |
 | D11 | 库/API 核实 | 涉及新库/新 API 时**首选 context7 查询**（context7 不可用时 fallback 到 web 搜索/官方文档），核实结论写入开发日志（来源 + 结论）。覆盖三件事：①库选型与版本兼容性；②外部 API 最新签名/参数/限制（讯飞 WebAPI、智谱 OpenAI 兼容接口）；③已知坑（性能、平台限制、不再维护）。**严禁凭训练记忆编造库名/函数名/参数** |
 | D12 | Key 安全 | API Key/AppID/Secret 仅存服务端 .env；禁止硬编码、禁止提交仓库、禁止下发到客户端 |
 
@@ -201,7 +201,8 @@
 **已完成并验收**：T0.1, T0.2, T0.3, T1.1
 **已完成待验收**：T0.4（Expo Go 验证需用户操作）
 **阻塞项**：T0.5 API Key 获取（智谱+讯飞，需用户注册申请，阻塞 T1.8 真实链路自测；阶段一代码可先写用 .env.example 占位）
-**本地仓库**：已初始化（commit `18605bf` + `b32b6b3`，main 分支）
+**本地仓库**：已初始化（commit `18605bf` + `b32b6b3` + `a68620b`，main 分支）
+**远程仓库**：https://github.com/Yoozzzzzz/voice-car-assistant.git（origin，2026-09-22 绑定并首推 main）
 **下一步**：用户在物理设备用 Expo Go 扫描验证 T0.4 → 申请 T0.5 API Key 填入 server/.env → 开工 T1.2 WS 服务（依赖 T1.1 协议）
 
 **关键技术调整（2026-09-22 方案评审落地，已写入对应任务验收标准）**：
@@ -283,6 +284,10 @@
 - **门禁遵守情况**：入口 5 项逐项核对 ✓；D1(目录)/D3(配置驱动)/D4(单一职责 index.ts 100 行内)/D5(中文注释)/D6(禁用 any)/D8(错误边界)/D10(提交前缀 `feat:`/`chore:`)/D11(库核实 web 搜索)/D12(Key 安全) 全 ✓；D7(不写 mock)骨架阶段不涉及；D9(不破坏旧)新建项目不涉及；D2(命名) PascalCase/camelCase/UPPER_SNAKE ✓
 - **未做事项**：T0.5 API Key 申请（用户操作，待补 server/.env）；T0.6 云服务器（暂停，阶段三联调时启动）
 - **下一步建议**：① 用户在设备上执行 `cd client && npm start` + Expo Go 扫描验证 T0.4；② 用户申请 T0.5 API Key 并填入 `server/.env`；③ 验收通过后开工 T1.2 WS 服务（依赖本协议 T1.1）
+
+### 2026-09-22（三续）— 远程仓库绑定
+- 用户提供远程地址，绑定 `origin` = https://github.com/Yoozzzzzz/voice-car-assistant.git，首推 main（3 个提交：`18605bf` / `b32b6b3` / `a68620b`）成功
+- 用户确立提交纪律：**每完成一个小节点即 commit + push**（已写入 D10 门禁）
 
 ---
 
