@@ -367,6 +367,12 @@
 - **新增 D13 服务启动管控**（开发过程门禁第 13 项）：用户未明确要求时 AI 不得自行启动任何服务（server dev / expo start / 任何端口监听）；需运行验证先征得同意；AI 启动的服务验证完毕或用户要求时必须彻底停止（含 watch 父进程、确认端口释放）
 - 同步修正：使用说明"12 项约束"→"13 项"；上一条日志的"dev 服务按需关闭"已执行完毕
 
+### 2026-09-23（二续）— 修复真机连不上 WS：localhost 默认值错误
+- 用户反馈：手机 Expo Go 测试连不上 WS，默认地址 `ws://localhost:8080/ws`。**根因**：手机上的 `localhost` 指手机自身而非开发电脑，真机调试必须用电脑局域网 IP。属默认值设计缺陷——虽 UI placeholder 提示了"ws://电脑IP:8080/ws"，但默认值不应是 localhost（本机调试思维，对真机场景不友好）
+- **修复**（`client/src/config.ts` + `App.tsx`）：默认地址改为 `getDevServerWsUrl()` 自动推导——Expo Go 经 `expo start` LAN 模式加载时，`Constants.expoConfig.hostUri` 为开发电脑地址（格式 `192.168.x.x:8081`），剥掉 Metro 端口换 8080 即得 WS 地址；拿不到（隧道模式/web 调试）退回 localhost
+- **D11 核实**（web 搜索 + 本地 node_modules 类型源码双确认）：SDK 52 `expo-constants` 的 `Constants.expoConfig` 类型含 `hostUri?: string`，注释明确"Only present during development using @expo/cli"（expo-constants/build/Constants.types.d.ts:158-163）
+- **真机连不上 WS 排查清单**（给用户）：①地址须为 `ws://<电脑局域网IP>:8080/ws`（现在自动推导）②电脑需自己启动 server：`cd server && npm run dev`（D13：AI 不代启）③手机与电脑须同一 Wi-Fi/局域网 ④Windows 防火墙需放行 Node.js 入站 8080（首次启动通常弹窗，选"允许"；或 `netsh advfirewall firewall add rule` 专规则）
+
 ---
 
 ## 使用说明（给 AI）

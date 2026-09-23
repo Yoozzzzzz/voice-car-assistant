@@ -11,8 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { SERVER_WS_URL } from './config';
-import { WebSocketService, type WsStatus } from './services/websocketService';
+import { getDevServerWsUrl } from './config';import { WebSocketService, type WsStatus } from './services/websocketService';
 import type { ServerMessage } from './services/protocol';
 
 /** 单条对话消息 */
@@ -50,7 +49,7 @@ function statusInfo(status: WsStatus): { label: string; color: string } {
  * 后续接入：T2.1 音频采集 / T2.6 语音代理 / T3.1 波形动画 / T3.3 设置面板
  */
 export default function App() {
-  const [serverUrl, setServerUrl] = useState(SERVER_WS_URL);
+  const [serverUrl, setServerUrl] = useState(() => getDevServerWsUrl());
   const [status, setStatus] = useState<WsStatus>('disconnected');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
