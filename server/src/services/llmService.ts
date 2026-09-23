@@ -175,14 +175,66 @@ async function serialized<T>(task: () => Promise<T>): Promise<T> {
  * @param signal 中断信号（客户端 interrupt 时 T1.7 触发）
  * @returns 完整正文与耗时；失败抛 LlmError（调用方映射 error(LLM_FAILED)）
  */
-/** 是否 429 限流可重试 */
-function isRateLimitError(err: unknown): boolean {
-  if (err instanceof OpenAI.APIError && err.status === 429) return true;
-  if (err instanceof Error) {
-    const m = err.message;
-    return m.includes('429') || m.includes('访问量过大') || m.includes('rate_limit') || m.includes('Rate limit');
+/** 错误归类结果：用户可读提示 + 是否值得重试 */
+interface LlmErrorInsight {
+  message: string;
+  retryable: boolean;
+}
+
+/**
+ * 已知供应商业务错误 → 用户可读提示 + 重试判定
+ *
+ * D11 核实（2026-09-23 web 搜索，火山方舟错误码文档/社区案例）：
+ *   - 模型未开通：404 `ModelNotOpen`"Your account xxx has not activated the model xxx. Please activate the model service in the Ark Console"
+ *     → 方舟要求**逐个模型在控制台「开通管理」显式开通**（开通免费，个人用户享免费额度），仅持有 API Key 不够
+ *   - 免费额度耗尽/用量上限：429 "has exhausted the free trial quota for model xxx" / "has reached the set inference limit ... paused"
+ *     → 虽为 429 但**重试无意义**，需控制台处理（充值/调用量上限/换模型）
+ *   - 并发/速率限流 429：可重试（指数退避）
+ */
+function classifyLlmError(err: unknown, provider: ProviderRuntime): LlmErrorInsight {
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as { code?: string | null } | null)?.code ?? '';
+  const status = err instanceof OpenAI.APIError ? err.status : undefined;
+  const lower = `${msg} ${code}`.toLowerCase();
+
+  // 模型未开通（方舟 ModelNotOpen，404）
+  if (lower.includes('has not activated the model') || lower.includes('modelnotopen')) {
+    return {
+      message:
+        provider.name === 'doubao'
+          ? `豆包模型「${provider.model}」未开通：请到火山方舟控制台 →「开通管理」开通该模型（开通免费，个人用户有免费额度），或将 LLM_PROVIDER 切回 zhipu`
+          : `模型「${provider.model}」未开通：请在供应商控制台开通该模型后再试`,
+      retryable: false,
+    };
   }
-  return false;
+
+  // 免费额度耗尽 / 触达用量上限被暂停（429 但不可重试）
+  if (
+    lower.includes('exhausted the free trial quota') ||
+    lower.includes('has reached the set inference limit') ||
+    lower.includes('inference limit')
+  ) {
+    return {
+      message: `模型「${provider.model}」免费额度已用尽或已达用量上限：请到火山方舟控制台查看用量/开启按量计费，或将 LLM_PROVIDER 切回 zhipu`,
+      retryable: false,
+    };
+  }
+
+  // 限流 429（可指数退避重试）
+  if (
+    status === 429 ||
+    lower.includes('429') ||
+    lower.includes('rate_limit') ||
+    lower.includes('rate limit') ||
+    lower.includes('访问量过大')
+  ) {
+    return {
+      message: `模型访问量过大（429 限流），已重试 ${MAX_RETRIES} 次仍失败，请稍后再试`,
+      retryable: true,
+    };
+  }
+
+  return { message: `LLM 调用失败: ${msg}`, retryable: false };
 }
 
 /** 指数退避等待 */
@@ -271,7 +323,8 @@ export async function streamLlmReply(
         return { fullText: '', elapsedMs: Date.now() - startMs };
       }
       lastErr = err;
-      if (isRateLimitError(err) && attempt < MAX_RETRIES) {
+      const insight = classifyLlmError(err, provider);
+      if (insight.retryable && attempt < MAX_RETRIES) {
         const retry = attempt + 1; // 第几次重试（1 开始）
         const delay = RETRY_BASE_MS * 2 ** attempt;
         logger.warn(
@@ -287,13 +340,12 @@ export async function streamLlmReply(
         await sleep(delay);
         continue;
       }
-      // 非 429 或重试耗尽：包装为 LlmError 抛出（附人类可读失败原因）
-      const msg = err instanceof Error ? err.message : String(err);
-      const reason = isRateLimitError(err)
-        ? `模型访问量过大（429 限流），已重试 ${MAX_RETRIES} 次仍失败，请稍后再试`
-        : `LLM 调用失败: ${msg}`;
-      logger.error({ err, provider: provider.name, model: provider.model }, 'LLM 流式调用失败');
-      throw new LlmError(reason, err);
+      // 不可重试（未开通/额度耗尽/其他）或重试耗尽：包装为 LlmError 抛出（附可操作的中文原因）
+      logger.error(
+        { err, provider: provider.name, model: provider.model, retryable: insight.retryable },
+        'LLM 流式调用失败',
+      );
+      throw new LlmError(insight.message, err);
     }
   }
 

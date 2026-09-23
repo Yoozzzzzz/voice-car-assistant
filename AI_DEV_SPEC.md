@@ -418,6 +418,17 @@
 - **切换方式**：`server/.env` 设 `LLM_PROVIDER=doubao` + `DOUBAO_API_KEY=xxx` → 重启 → `GET /health` 确认
 - 自检：server typecheck 0 错误；豆包真实调用待用户补 Key（D7 不 mock）
 
+### 2026-09-23（七续）— 方舟 ModelNotOpen 错误友好化 + 错误归类重构
+- 用户现象：配好 DOUBAO_API_KEY 后调用报 `Your account 2132354909 has not activated the model doubao-seed-2-0-mini-260428. Please activate the model service in the Ark Console`
+- **D11 核实（web 搜索，火山方舟错误码文档 + 社区案例）**：方舟要求**逐个模型在控制台「开通管理」显式开通**才可调用，仅持有 API Key 会返回 404 `ModelNotOpen`；开通本身免费，个人用户享免费额度，超出后按量计费。另有 429 `has exhausted the free trial quota`（额度用尽）与 `has reached the set inference limit`（触达用量上限被暂停）两类**不可重试**的 429
+- **代码改进**（`llmService.ts`）：`isRateLimitError` 重构为 `classifyLlmError(err, provider) → { message, retryable }`
+  - 未开通（`ModelNotOpen`/has not activated the model）→ 提示"请到火山方舟控制台→开通管理开通该模型"（doubao 专属文案，含切回 zhipu 建议），**不重试**
+  - 额度用尽/用量上限（429 但语义为配额）→ 提示控制台处理，**不重试**（避免白等 3 次退避约 5.6s）
+  - 真限流 429 → 保留指数退避重试 + `llm_retry` 进度通知
+  - 其他 → 原样透出
+- 文档：《项目文档》5.4 补充"必须开通模型"步骤与**常见方舟报错对照表**
+- 自检：server typecheck 0 错误
+
 ---
 
 ## 使用说明（给 AI）
