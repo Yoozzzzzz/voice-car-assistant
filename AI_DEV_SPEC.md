@@ -130,7 +130,7 @@
 | T1.4 | 讯飞 ASR 对接 | asr/xunfeiAsr.ts | 流式听写：接收 PCM 分片推送，返回中间/最终识别文本（isFinal）；鉴权签名正确 | ✅已完成(2026-09-22, src/services/asrService.ts；配置缺失错误路径自测通过；真实识别联调待 T0.5 Key) |
 | T1.5 | 讯飞 TTS 对接 | tts/xunfeiTts.ts | 文本→音频，**按句合成**（句末标点 `，。！？` 触发）；返回格式 = **PCM 16kHz/16bit/单声道 + 44 字节 WAV 头 + base64**；AppID 鉴权正确；单句合成超时 ≤1.5s，失败时单句降级 Edge TTS（T1.6） | ⬜未开始 |
 | T1.6 | Edge TTS 备用 | tts/edgeTts.ts | 免 Key 合成可用，作为讯飞 TTS 失败时降级；配置开关选择 TTS 后端；输出格式对齐 T1.5（WAV 头 + PCM base64） | ⬜未开始 |
-| T1.7 | 流式管线编排 | handler.ts 集成 | ASR isFinal → LLM 流式 → **遇句末标点立即触发该句 TTS 合成（不等 LLM 流收完）** → 推送 llm_chunk + tts_audio → 客户端按句播放；全链路消息时序正确（asr_result → 多组 llm_chunk/tts_audio 对 → 最终结束标记）；分句策略可配（标点集、句长上限） | ⬜未开始 |
+| T1.7 | 流式管线编排 | handler.ts 集成 | ASR isFinal → LLM 流式 → **遇句末标点立即触发该句 TTS 合成（不等 LLM 流收完）** → 推送 llm_chunk + tts_audio → 客户端按句播放；全链路消息时序正确（asr_result → 多组 llm_chunk/tts_audio 对 → 最终结束标记）；分句策略可配（标点集、句长上限） | 🟡进行中(2026-09-23 用户指令提前接入 text→LLM 通道：流式 llm_chunk/llm_end + 会话历史多轮上下文已通，真实链路自测 4/4；ASR 入口与按句 TTS 部分待 T1.5/T1.6) |
 | T1.8 | 后端自测 | test/ws-client.mjs | 模拟客户端脚本跑通：发文本→收 llm_chunk 流；发预录 PCM→收 asr_result→llm→tts_audio | ⬜未开始 |
 
 **里程碑**：Week 1 结束后端全链路可独立验证（无需车机端）。
@@ -143,7 +143,7 @@
 |--------|------|------|----------|------|
 | T2.1 | 音频采集服务 | services/audioService.ts | **开发前用 context7/官方文档核实 expo-audio（Expo 官方 SDK，带 config plugin）与 react-native-audio-record 哪个支持 PCM 分块流回调**（D11），按核实结论选型；采集 16kHz/16bit/单声道 PCM，每 200ms 回调一个 chunk；权限申请与拒绝兜底；**调试走 dev build（`npx expo prebuild` + `assembleDebug`），Expo Go 不支持原生音频模块** | ⬜未开始 |
 | T2.2 | VAD 语音活动检测 | services/vadService.ts | **自适应噪声门限**：前 1-2 秒采集环境噪声做基线（dB），运行时阈值 = 基线 + 6-10dB（可配），静音持续 800ms 触发说话结束；同时**启用讯飞服务端 vad_eos（800ms）作为最终断句依据**；阈值/时长/联动策略从配置读取 | ⬜未开始 |
-| T2.3 | WebSocket 客户端 | services/websocketService.ts | 按 T1.1 协议收发（音频 base64/JSON）；消息序列化/反序列化类型安全 | ⬜未开始 |
+| T2.3 | WebSocket 客户端 | services/websocketService.ts | 按 T1.1 协议收发（音频 base64/JSON）；消息序列化/反序列化类型安全 | 🟡进行中(2026-09-23 基础版已实现：text/ping 收发 + 类型守卫解析 + 25s 应用层心跳；audio 收发待 T2.1 后扩展) |
 | T2.4 | 自动重连 | hooks/useAutoReconnect.ts | 断开后 5 秒内自动重连（指数退避）；重连期间本地缓存未发送音频，恢复后续传 | ⬜未开始 |
 | T2.5 | 音频播放 | services/audioService.ts 扩展 | **分句 WAV 播放队列**（TTS 按句到达，每句带 44 字节 WAV 头，独立播放，句间 gap ≤50ms）；**半双工**：speaking 状态暂停音频推送（采集不停），播报结束恢复；播放库选型前 context7/官方文档核实 PCM/WAV 支持（D11，候选 `expo-audio`/`react-native-sound`/`expo-av`，不再考虑 track-player）；音频焦点处理（系统通知/导航播报时降音量或暂停） | ⬜未开始 |
 | T2.6 | 语音代理主逻辑 | hooks/useVoiceAgent.ts | 采集→VAD→发送→asr/llm/tts 接收→播放 完整状态机（idle/listening/recognizing/thinking/speaking）；多轮连续对话无需重启；与 T2.5 半双工策略联动 | ⬜未开始 |
@@ -198,7 +198,7 @@
 > 每次会话结束更新此区，AI 新会话只读本区即可快速恢复上下文。
 
 **当前阶段**：阶段一 - 后端核心链路（阶段零已全部完成验收）
-**当前任务**：T1.2/T1.3/T1.4 已完成；下一项 T1.5 TTS 按句合成
+**当前任务**：T1.7/T2.3 文字调试通道已提前打通（用户指令 2026-09-23）；下一步 T1.5 TTS 按句合成
 **已完成并验收**：T0.1, T0.2, T0.3, T0.4, T1.1
 **已完成待验收**：无
 **阻塞项**：T0.5 API Key 获取（智谱+讯飞，需用户注册申请，阻塞 T1.8 真实链路自测；阶段一代码可先写用 .env.example 占位）
@@ -344,6 +344,21 @@
   - 空会话 finish() 不发尾帧直接关闭；abort 不发尾帧（interrupt 语义）
 - **自测**：配置缺失 → onError('讯飞 ASR 配置缺失') ✅（真实识别联调待 T0.5 Key，T1.8 一并补）
 - **下一步**：T1.5 讯飞 TTS / Edge TTS 按句合成（D11 核实两者接口）
+
+### 2026-09-23 — 用户指令提前打通"文字输入 → AI 模型"调试通道（T1.7 文本路径 + T2.3 基础版 + 客户端对话 UI）
+- 用户指令："增加一个文字输入框，点击输入文字，send 给 AI 模型消息"。属 T1.7 文本调试通道与 T2.3 WS 客户端的部分提前实现（§6 用户明确允许），T1.5/T1.6（TTS）与 T1.4 接入（ASR）不动
+- **服务端**（`handler.ts` + `session.ts`）：
+  - text 消息 → `streamLlmReply` 流式调用：onDelta 逐段下发 `llm_chunk`（isFinal=false）→ 结束下发 `llm_end`（fullText）；失败下发 `error(LLM_FAILED)`
+  - 会话级多轮上下文：session 新增 `history`（保留最近 10 条，防超上下文）+ `llmInFlight` 防同会话并发（免费 API 限 1 并发，超发回 `RATE_LIMIT`）
+  - 边界：空文本 → `INVALID_MESSAGE`；dispatch 为同步入口，LLM 异步 fire-and-forget，结果经 safeSend（检查 ws.readyState）下发
+- **客户端**：
+  - `src/config.ts`：SERVER_WS_URL 默认值 + 心跳间隔（D3 配置驱动）
+  - `src/services/protocol.ts`：T1.1 协议客户端侧子集（text/ping + llm_chunk/llm_end/pong/error），parseServerMessage 类型守卫（D6 禁 any）
+  - `src/services/websocketService.ts`（T2.3 基础版）：RN 内置 WebSocket（无新依赖）；25s 应用层心跳（服务端 60s 超时约定）；sessionId 启动生成、重连复用；回调 try-catch（D8）
+  - `src/App.tsx`：对话 UI——服务器地址行（连接/断开按钮，真机调试需改电脑局域网 IP）、连接状态指示、消息气泡列表（llm_chunk 增量渲染+光标符）、TextInput 输入框 + 发送按钮（未连接/生成中禁用）、错误消息以气泡展示
+- **自测（真实链路，非 mock，D7）**：服务端启动后跑 WS 脚本——①text 消息收到 11 个 llm_chunk + llm_end（"全程约120公里，开车大概1个半小时。"，19 字）②llm_end.fullText 与 chunk 拼接一致 ③空文本 → error(INVALID_MESSAGE) ④会话不崩；双端 `npm run typecheck` 0 错误。临时脚本已删（正式版待 T1.8）
+- **待用户验证**：真机 Expo Go 打开 App → 地址栏改为 `ws://<电脑局域网IP>:8080/ws` → 连接 → 输入文字发送，验证流式回复渲染
+- 注意：本机 8080 dev 服务为本会话所启，联调后按需关闭
 
 ---
 

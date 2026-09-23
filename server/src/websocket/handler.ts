@@ -17,10 +17,16 @@ import type { WebSocket } from 'ws';
 import type {
   ClientMessage,
   ServerErrorMessage,
+  ServerLlmChunkMessage,
+  ServerLlmEndMessage,
   ServerPongMessage,
 } from './protocol.js';
 import type { Session, SessionManager } from './session.js';
+import { streamLlmReply } from '../services/llmService.js';
 import { logger } from '../utils/logger.js';
+
+/** 会话保留的最大历史消息数（user+assistant 计，防超上下文） */
+const MAX_HISTORY_MESSAGES = 10;
 
 /** 构造 error 消息（服务端 → 客户端） */
 function buildErrorMessage(code: ServerErrorMessage['code'], message: string, sessionId?: string): ServerErrorMessage {
@@ -111,12 +117,63 @@ function dispatch(session: Session, msg: ClientMessage): void {
     }
 
     case 'text': {
-      // 文本直传（调试通道）→ TODO-T1.7 接入 LLM 流式管线
+      // 文本直传（调试通道）→ LLM 流式管线
+      // 2026-09-23 提前接入（用户指令）：text 消息直接进 LLM，流式下发 llm_chunk → llm_end
+      // TTS 按句合成部分仍留待 T1.5/T1.6 完成后在 T1.7 全量接入
       session.textMessageCount += 1;
-      logger.info(
-        { sessionId: session.sessionId, len: msg.data.length, count: session.textMessageCount },
-        '收到文本消息（待 T1.7 接入 LLM 管线，暂不回复）',
-      );
+      const text = msg.data.trim();
+      if (text.length === 0) {
+        safeSend(session.ws, buildErrorMessage('INVALID_MESSAGE', '文本消息不能为空', session.sessionId));
+        break;
+      }
+      if (session.llmInFlight) {
+        safeSend(session.ws, buildErrorMessage('RATE_LIMIT', '上一条回复仍在生成中，请稍候', session.sessionId));
+        break;
+      }
+      session.llmInFlight = true;
+      logger.info({ sessionId: session.sessionId, len: text.length }, '收到文本消息，进入 LLM 流式管线');
+
+      // 异步流式调用（dispatch 为同步入口，这里 fire-and-forget，结果通过 WS 下发）
+      void streamLlmReply(text, [...session.history], {
+        onDelta: (delta) => {
+          const chunk: ServerLlmChunkMessage = {
+            type: 'llm_chunk',
+            sessionId: session.sessionId,
+            text: delta,
+            isFinal: false,
+            timestamp: Date.now(),
+          };
+          safeSend(session.ws, chunk);
+        },
+      })
+        .then((result) => {
+          // 写入会话历史（多轮上下文），截断保留最近 N 条
+          session.history.push(
+            { role: 'user', content: text },
+            { role: 'assistant', content: result.fullText },
+          );
+          if (session.history.length > MAX_HISTORY_MESSAGES) {
+            session.history.splice(0, session.history.length - MAX_HISTORY_MESSAGES);
+          }
+          const end: ServerLlmEndMessage = {
+            type: 'llm_end',
+            sessionId: session.sessionId,
+            fullText: result.fullText,
+            timestamp: Date.now(),
+          };
+          safeSend(session.ws, end);
+          logger.info(
+            { sessionId: session.sessionId, elapsedMs: result.elapsedMs, len: result.fullText.length },
+            'LLM 流式回复完成',
+          );
+        })
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          safeSend(session.ws, buildErrorMessage('LLM_FAILED', message, session.sessionId));
+        })
+        .finally(() => {
+          session.llmInFlight = false;
+        });
       break;
     }
 

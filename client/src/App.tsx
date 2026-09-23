@@ -1,29 +1,219 @@
 import { StatusBar } from 'expo-status-bar';
 import { registerRootComponent } from 'expo';
-import { StyleSheet, Text, View } from 'react-native';
+import {
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { SERVER_WS_URL } from './config';
+import { WebSocketService, type WsStatus } from './services/websocketService';
+import type { ServerMessage } from './services/protocol';
+
+/** 单条对话消息 */
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  /** assistant 流式接收中 */
+  streaming?: boolean;
+}
+
+/** 消息自增 ID */
+let msgSeq = 0;
+function nextId(): string {
+  msgSeq += 1;
+  return `m-${msgSeq}`;
+}
+
+/** 连接状态的展示文案与颜色 */
+function statusInfo(status: WsStatus): { label: string; color: string } {
+  switch (status) {
+    case 'connected':
+      return { label: '已连接', color: '#4caf50' };
+    case 'connecting':
+      return { label: '连接中…', color: '#ffb300' };
+    default:
+      return { label: '未连接', color: '#f44336' };
+  }
+}
 
 /**
- * 车机端根入口（阶段零骨架）
+ * 车机端根入口
  *
- * 阶段一将等待 T1.1 WebSocket 协议冻结后接入通信
- * 阶段二将接入：
- *   - T2.1 音频采集（src/services/audioService.ts）
- *   - T2.2 VAD 语音活动检测（src/services/vadService.ts）
- *   - T2.3 WebSocket 客户端（src/services/websocketService.ts）
- *   - T2.4 自动重连（src/hooks/useAutoReconnect.ts）
- *   - T2.5 音频播放（src/services/audioService.ts 扩展）
- *   - T2.6 语音代理主逻辑（src/hooks/useVoiceAgent.ts）
- * 阶段三将接入：
- *   - T3.1 对话气泡（src/components/ChatBubble.tsx）
- *   - T3.3 设置面板（src/components/SettingsPanel.tsx）
+ * 当前能力：文字输入框 → WS text 消息 → 服务端 LLM 流式回复（llm_chunk 增量渲染）
+ * 后续接入：T2.1 音频采集 / T2.6 语音代理 / T3.1 波形动画 / T3.3 设置面板
  */
 export default function App() {
+  const [serverUrl, setServerUrl] = useState(SERVER_WS_URL);
+  const [status, setStatus] = useState<WsStatus>('disconnected');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+
+  const wsRef = useRef<WebSocketService | null>(null);
+  const listRef = useRef<FlatList<ChatMessage>>(null);
+
+  /** 处理服务端消息：llm_chunk 增量拼到最后一条 assistant 消息；llm_end/error 收尾 */
+  const handleServerMessage = useCallback((msg: ServerMessage) => {
+    if (msg.type === 'llm_chunk') {
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        // 最后一条是流式中的 assistant 消息 → 追加；否则新建
+        if (last && last.role === 'assistant' && last.streaming) {
+          return [...prev.slice(0, -1), { ...last, text: last.text + msg.text }];
+        }
+        return [...prev, { id: nextId(), role: 'assistant', text: msg.text, streaming: true }];
+      });
+    } else if (msg.type === 'llm_end') {
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && last.role === 'assistant' && last.streaming) {
+          // 以服务端 fullText 为准（防增量丢字）
+          return [...prev.slice(0, -1), { ...last, text: msg.fullText, streaming: false }];
+        }
+        return [...prev, { id: nextId(), role: 'assistant', text: msg.fullText }];
+      });
+      setSending(false);
+    } else if (msg.type === 'error') {
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), role: 'assistant', text: `[错误 ${msg.code}] ${msg.message}`, streaming: false },
+      ]);
+      setSending(false);
+    }
+    // pong：心跳响应，无需处理
+  }, []);
+
+  // 创建 WS 服务并订阅（组件挂载一次）
+  useEffect(() => {
+    const service = new WebSocketService();
+    wsRef.current = service;
+    service.onStatusChange(setStatus);
+    service.onMessage(handleServerMessage);
+    return () => {
+      service.disconnect();
+      wsRef.current = null;
+    };
+  }, [handleServerMessage]);
+
+  // 消息列表变化时滚动到底部
+  useEffect(() => {
+    if (messages.length > 0) {
+      listRef.current?.scrollToEnd({ animated: true });
+    }
+  }, [messages]);
+
+  /** 发送文本 */
+  const handleSend = useCallback(() => {
+    const text = input.trim();
+    const ws = wsRef.current;
+    if (!ws || text.length === 0 || !ws.connected || sending) return;
+    if (!ws.sendText(text)) return;
+    setMessages((prev) => [...prev, { id: nextId(), role: 'user', text }]);
+    setInput('');
+    setSending(true);
+  }, [input, sending]);
+
+  /** 连接 / 断开（按当前状态切换） */
+  const handleToggleConnect = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws) return;
+    if (ws.connected || status === 'connecting') {
+      ws.disconnect();
+    } else {
+      ws.connect(serverUrl.trim());
+    }
+  }, [serverUrl, status]);
+
+  const info = statusInfo(status);
+  const canSend = status === 'connected' && !sending && input.trim().length > 0;
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>车机语音助手</Text>
-      <Text style={styles.subtitle}>阶段零 · 骨架就绪</Text>
-      <Text style={styles.status}>Stage: zero-skeleton → stage 1 pending</Text>
-      <StatusBar style="auto" />
+      {/* 顶栏：标题 + 连接状态 */}
+      <View style={styles.header}>
+        <Text style={styles.title}>车机语音助手</Text>
+        <View style={styles.statusWrap}>
+          <View style={[styles.statusDot, { backgroundColor: info.color }]} />
+          <Text style={[styles.statusText, { color: info.color }]}>{info.label}</Text>
+        </View>
+      </View>
+
+      {/* 服务器地址行（调试用，T3.3 将迁入设置面板） */}
+      <View style={styles.serverRow}>
+        <TextInput
+          style={styles.serverInput}
+          value={serverUrl}
+          onChangeText={setServerUrl}
+          placeholder="ws://电脑IP:8080/ws"
+          placeholderTextColor="#666666"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <Pressable
+          style={[styles.connectBtn, status === 'connected' || status === 'connecting' ? styles.connectBtnOn : null]}
+          onPress={handleToggleConnect}
+        >
+          <Text style={styles.connectBtnText}>
+            {status === 'disconnected' ? '连接' : '断开'}
+          </Text>
+        </Pressable>
+      </View>
+
+      {/* 对话区 */}
+      <KeyboardAvoidingView
+        style={styles.chatArea}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={0}
+      >
+        <FlatList
+          ref={listRef}
+          data={messages}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <View style={[styles.bubble, item.role === 'user' ? styles.bubbleUser : styles.bubbleAssistant]}>
+              <Text style={styles.bubbleText}>
+                {item.text}
+                {item.streaming ? '▍' : ''}
+              </Text>
+            </View>
+          )}
+          contentContainerStyle={styles.listContent}
+          ListEmptyComponent={
+            <Text style={styles.emptyHint}>输入文字发送给 AI 试试（需先连接服务器）</Text>
+          }
+        />
+
+        {/* 输入框 + 发送按钮 */}
+        <View style={styles.inputRow}>
+          <TextInput
+            style={styles.input}
+            value={input}
+            onChangeText={setInput}
+            placeholder="输入文字…"
+            placeholderTextColor="#666666"
+            editable={status === 'connected'}
+            multiline={false}
+            returnKeyType="send"
+            onSubmitEditing={handleSend}
+          />
+          <Pressable
+            style={[styles.sendBtn, canSend ? null : styles.sendBtnDisabled]}
+            onPress={handleSend}
+            disabled={!canSend}
+          >
+            <Text style={styles.sendBtnText}>{sending ? '生成中' : '发送'}</Text>
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+
+      <StatusBar style="light" />
     </View>
   );
 }
@@ -38,23 +228,123 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#1a1a1a',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
+    paddingTop: 48,
+    paddingHorizontal: 16,
   },
-  title: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#ffffff',
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 12,
   },
-  subtitle: {
-    fontSize: 18,
-    color: '#cccccc',
-    marginBottom: 24,
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#ffffff',
   },
-  status: {
-    fontSize: 12,
-    color: '#888888',
+  statusWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  statusText: {
+    fontSize: 14,
+  },
+  serverRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  serverInput: {
+    flex: 1,
+    backgroundColor: '#2a2a2a',
+    color: '#dddddd',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 13,
+  },
+  connectBtn: {
+    backgroundColor: '#1976d2',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+  },
+  connectBtnOn: {
+    backgroundColor: '#555555',
+  },
+  connectBtnText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  chatArea: {
+    flex: 1,
+  },
+  listContent: {
+    paddingBottom: 12,
+    gap: 8,
+  },
+  emptyHint: {
+    color: '#666666',
+    textAlign: 'center',
+    marginTop: 48,
+    fontSize: 14,
+  },
+  bubble: {
+    maxWidth: '80%',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  bubbleUser: {
+    alignSelf: 'flex-end',
+    backgroundColor: '#1976d2',
+  },
+  bubbleAssistant: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#2f2f2f',
+  },
+  bubbleText: {
+    color: '#ffffff',
+    fontSize: 16,
+    lineHeight: 22,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#333333',
+  },
+  input: {
+    flex: 1,
+    backgroundColor: '#2a2a2a',
+    color: '#ffffff',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 16,
+  },
+  sendBtn: {
+    backgroundColor: '#1976d2',
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+  },
+  sendBtnDisabled: {
+    backgroundColor: '#3a3a3a',
+  },
+  sendBtnText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

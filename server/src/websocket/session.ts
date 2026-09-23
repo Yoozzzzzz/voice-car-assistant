@@ -14,6 +14,7 @@
  */
 import type { WebSocket } from 'ws';
 import { randomUUID } from 'node:crypto';
+import type { LlmMessage } from '../services/llmService.js';
 import { logger } from '../utils/logger.js';
 
 /** 单个客户端会话 */
@@ -32,6 +33,10 @@ export interface Session {
   audioChunkCount: number;
   /** 收到的文本消息计数（调试统计） */
   textMessageCount: number;
+  /** LLM 对话历史（多轮上下文，由 handler 维护并截断，防超上下文） */
+  history: LlmMessage[];
+  /** LLM 流是否在途（同一会话防并发：免费 API 限 1 并发） */
+  llmInFlight: boolean;
 }
 
 /**
@@ -62,6 +67,8 @@ export class SessionManager {
       lastPingAt: Date.now(),
       audioChunkCount: 0,
       textMessageCount: 0,
+      history: [],
+      llmInFlight: false,
     };
     this.sessions.set(sessionId, session);
     logger.info({ sessionId, total: this.sessions.size }, '会话建立');
