@@ -429,6 +429,18 @@
 - 文档：《项目文档》5.4 补充"必须开通模型"步骤与**常见方舟报错对照表**
 - 自检：server typecheck 0 错误
 
+### 2026-09-23（九续）— 修复 LLM 空回复（空白气泡）
+- 用户现象：手机端发送"嘿嘿开心，刚才看见个美女"后，服务端日志 `LLM 流式回复完成 elapsedMs: 54101 len: 0`，客户端显示空白气泡
+- **排查**：
+  - 当前 `.env` 中 `LLM_PROVIDER=zhipu`；用 zhipu 复现（含历史上下文）可正常返回内容，说明不是智谱端本身的问题
+  - 若用户实际切换到了 `doubao`，当前工作区诊断显示该账号的 `doubao-seed-2-0-mini-260428` **仍未开通**（`ModelNotOpen`），会返回我们友好化的错误，不会走到 `len: 0`
+  - 因此 `len: 0` 最可能原因：① 豆包 Seed 深度思考默认开启，返回的 `reasoning_content` 被我们过滤掉、正文 `content` 为空；② 内容审核/上游异常空返回
+- **修复**（`llmService.ts`）：
+  - 豆包关闭思考双保险：除 `thinking: {type:'disabled'}` 外，再给 doubao 加官方 Chat API 字段 `reasoning_effort: 'minimal'`（D11 火山方舟深度思考文档：`minimal` 语义为关闭思考）
+  - 空正文防护：流式循环统计 `chunkCount` / `finishReason` / `reasoningChars`；若最终 `fullText.length === 0`，不再静默返回空白，而是抛出 `LlmError`，提示可能原因（深度思考被过滤 / 内容审核 / 模型未激活）并建议切换 zhipu
+  - 智谱保持原行为，`reasoning_effort` 不加（避免给不认识的供应商发未知字段）
+- **自检**：zhipu 复测正常返回；server typecheck 0 错误
+
 ### 2026-09-23（八续）— 系统提示词外置为可编辑 md（用户要求）
 - 用户问"后端的提示词刚才在哪编辑？如果没有那就单独提取出一个 md 文件作为提示词"。实情：原提示词**硬编码**在 `server/src/services/llmService.ts` 的 `SYSTEM_PROMPT` 常量（140 字/5 条），改一个字都要动代码
 - **新增文件**：

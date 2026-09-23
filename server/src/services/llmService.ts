@@ -260,10 +260,12 @@ export async function streamLlmReply(
 
     try {
       return await serialized(async () => {
-        let fullText = '';
-        let reasoningChars = 0;
+      let fullText = '';
+      let reasoningChars = 0;
+      let chunkCount = 0;
+      let finishReason: string | undefined;
 
-        // 关闭深度思考（D11 核实：智谱 GLM-4.7 与豆包 Seed 深度思考模型均默认开启思考）
+      // 关闭深度思考（D11 核实：智谱 GLM-4.7 与豆包 Seed 深度思考模型均默认开启思考）
         //   - thinking.type 仅 enabled/disabled；思考与正文共用 max_tokens，开启会耗尽额度导致正文为空
         //   - 车机低延迟场景必须禁用；openai SDK 类型不含此字段，故基础参数走标准类型、扩展字段后置断言透传
         const baseParams: OpenAI.Chat.ChatCompletionCreateParamsStreaming = {
@@ -274,24 +276,37 @@ export async function streamLlmReply(
           max_tokens: 1024,
           temperature: 0.7,
         };
-        const params = (
-          provider.disableThinking
-            ? { ...baseParams, thinking: { type: 'disabled' } }
-            : baseParams
-        ) as OpenAI.Chat.ChatCompletionCreateParamsStreaming;
+        // 深度思考关闭策略（D11 2026-09-23 火山方舟深度思考文档）：
+        //   - thinking.type=disabled 是豆包 Seed 显式开关；
+        //   - reasoning_effort='minimal' 在豆包 Seed 语义上也等于"关闭思考"，作为双保险，且是官方 Chat API 标准字段；
+        //   - 智谱 GLM-4.7 不认识 reasoning_effort，故只给豆包加。
+        const extraParams: Record<string, unknown> = {};
+        if (provider.disableThinking) {
+          extraParams.thinking = { type: 'disabled' };
+          if (provider.name === 'doubao') {
+            extraParams.reasoning_effort = 'minimal';
+          }
+        }
+        const params = { ...baseParams, ...extraParams } as OpenAI.Chat.ChatCompletionCreateParamsStreaming;
 
         const stream = await client.chat.completions.create(params, { signal });
 
         for await (const chunk of stream) {
+          chunkCount += 1;
+          const choice = chunk.choices[0];
+          if (choice?.finish_reason) {
+            finishReason = choice.finish_reason;
+          }
+
           // 思考过程（混合思考模型）：忽略，不进正文
-          const reasoning = (chunk.choices[0]?.delta as { reasoning_content?: string } | undefined)
+          const reasoning = (choice?.delta as { reasoning_content?: string } | undefined)
             ?.reasoning_content;
           if (reasoning) {
             reasoningChars += reasoning.length;
             continue;
           }
 
-          const delta = chunk.choices[0]?.delta?.content;
+          const delta = choice?.delta?.content;
           if (delta) {
             fullText += delta;
             callbacks.onDelta(delta);
@@ -300,6 +315,27 @@ export async function streamLlmReply(
 
         if (reasoningChars > 0) {
           logger.debug({ reasoningChars }, 'LLM 思考过程已过滤');
+        }
+
+        // 空正文防护：模型只返回思考链（被过滤）、内容审核拦截、或上游异常空返回时，
+        // 不能给客户端一个空白气泡。抛错 → handler 下发 error 消息（含可操作提示）。
+        if (fullText.length === 0) {
+          logger.warn(
+            {
+              provider: provider.name,
+              model: provider.model,
+              elapsedMs: Date.now() - startMs,
+              chunkCount,
+              reasoningChars,
+              finishReason,
+            },
+            'LLM 返回正文为空',
+          );
+          throw new LlmError(
+            `模型未返回任何正文（provider=${provider.name}, model=${provider.model}, finish_reason=${
+              finishReason ?? 'unknown'
+            }）。常见原因：① 豆包 Seed 深度思考被过滤（已尝试关闭）；② 内容审核拦截；③ 模型未激活/额度用尽。可尝试切换 LLM_PROVIDER=zhipu 或在控制台检查模型状态。`,
+          );
         }
 
         return { fullText, elapsedMs: Date.now() - startMs };
