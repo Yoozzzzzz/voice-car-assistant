@@ -41,6 +41,9 @@ export const config = {
   },
   // TTS 后端选择：xunfei（默认） | edge（备用免 Key）
   ttsBackend: (process.env.TTS_BACKEND || 'xunfei') as 'xunfei' | 'edge',
+  // 系统提示词文件（外置 md，改提示词不改代码）
+  //   空 = 默认 server/prompts/system-prompt.md；可填绝对路径或相对启动目录的路径
+  systemPromptFile: process.env.SYSTEM_PROMPT_FILE || '',
   // 音频参数（T1.7 流式管线使用）
   audio: {
     sampleRate: 16000,

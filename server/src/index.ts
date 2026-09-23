@@ -19,6 +19,7 @@ import { logger } from './utils/logger.js';
 import { config, validateConfig } from './config.js';
 import { initWebSocketServer, shutdownWebSocket, sessionManager } from './websocket/wsServer.js';
 import { getActiveLlmProvider } from './services/llmService.js';
+import { getSystemPromptMeta } from './prompts/systemPrompt.js';
 
 // 启动校验：缺失 Key 仅警告不阻塞（骨架阶段允许，阶段一联调前必须补齐）
 validateConfig();
@@ -39,6 +40,8 @@ app.get('/health', (_req, res) => {
     wsSessions: sessionManager.size,
     // 当前激活的 LLM 供应商与模型（切换 LLM_PROVIDER 后重启生效）
     llm: getActiveLlmProvider(),
+    // 系统提示词来源与长度（外置 md：server/prompts/system-prompt.md，用于确认加载的是哪份提示词）
+    systemPrompt: getSystemPromptMeta(),
   });
 });
 

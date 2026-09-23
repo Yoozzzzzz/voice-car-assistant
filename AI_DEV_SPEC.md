@@ -429,6 +429,17 @@
 - 文档：《项目文档》5.4 补充"必须开通模型"步骤与**常见方舟报错对照表**
 - 自检：server typecheck 0 错误
 
+### 2026-09-23（八续）— 系统提示词外置为可编辑 md（用户要求）
+- 用户问"后端的提示词刚才在哪编辑？如果没有那就单独提取出一个 md 文件作为提示词"。实情：原提示词**硬编码**在 `server/src/services/llmService.ts` 的 `SYSTEM_PROMPT` 常量（140 字/5 条），改一个字都要动代码
+- **新增文件**：
+  - `server/prompts/system-prompt.md`：提示词正文（按角色/输出风格/驾驶安全/事实性分节，可直接编辑）+ 头部注释写"编辑规则/设计约束/待办"
+  - `server/src/prompts/systemPrompt.ts`：加载器 `loadSystemPrompt()` → `SYSTEM_PROMPT`；`markdownToPrompt()` 把 md 转纯文本（标题/注释/引用不发送，列表符号去掉，逐行拼接）
+- **机制**：启动时读取一次（改 md 后重启生效，避免每轮读盘）；路径 = md 相对 serverRoot（开发 `src/prompts/`、生产 `dist/prompts/` 深度一致，同一相对路径均命中 `server/prompts/`）；`SYSTEM_PROMPT_FILE` 可覆盖（config 驱动 D3）；文件缺失/解析为空 → 内置兜底提示词 + warn（D8 不中断链路）
+- **可观测**：`GET /health` 新增 `systemPrompt: { source, chars, usedFallback }`（不返回正文，避免泄露/膨胀）
+- **自测（真实读文件，非 mock）4/4 通过**：①加载 md → 144 字/5 行，与旧硬编码正文一致 ②解析规则（标题/引用不发送、`- ` 与 `1. ` 符号去掉）✅ ③`SYSTEM_PROMPT_FILE` 指向不存在文件 → `usedFallback:true` + warn + 仍返回兜底提示词 ✅ ④空 md → 空串触发兜底 ✅；server typecheck 0 错误
+- **自测中发现并修复一个真实 bug**：md 注释正文里写了字面量 `-->`（说明"HTML 注释写法"），原用 `/<!--[\s\S]*?-->/g` 整段去注释会被提前截断，导致注释内容（含"编辑规则/设计约束"）漏进提示词（472 字）。改为**按行状态机**处理块注释 + 行内注释兜底，并加回归用例 ✅
+- 文档：《项目文档》2.3 目录树补 `prompts/`、新增 3.5 节说明提示词文件/加载机制/编写约束；`.env.example` 增加 `SYSTEM_PROMPT_FILE` 说明
+
 ---
 
 ## 使用说明（给 AI）

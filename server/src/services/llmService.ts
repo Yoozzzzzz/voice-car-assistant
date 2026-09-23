@@ -20,6 +20,7 @@
  */
 import OpenAI from 'openai';
 import { config } from '../config.js';
+import { SYSTEM_PROMPT } from '../prompts/systemPrompt.js';
 import { logger } from '../utils/logger.js';
 
 /** 对话消息（LLM 视角，OpenAI 格式） */
@@ -28,21 +29,8 @@ export interface LlmMessage {
   content: string;
 }
 
-/**
- * 车机语音助手系统提示词
- *
- * 设计要点：
- *   - 口语化短句（TTS 按句合成，短句显著降低首句延迟）
- *   - 规范句末标点（，。！？），T1.7 按标点切分触发 TTS
- *   - 拒绝长列表/代码块（语音播报不友好）
- */
-export const SYSTEM_PROMPT = [
-  '你是车载语音助手，通过语音与驾驶员对话。',
-  '回答必须口语化、简洁，每次不超过 3 句话，单句不超过 25 个字。',
-  '正确使用句末标点（。！？）和逗号，不要使用 emoji、markdown、列表或代码块。',
-  '涉及驾驶安全（疲劳、路况、天气）时主动简短提醒。',
-  '无法确定的信息要明确说明，不要编造。',
-].join('');
+// 系统提示词（SYSTEM_PROMPT）已外置为可编辑 md：server/prompts/system-prompt.md
+//   加载/解析见 src/prompts/systemPrompt.ts；可用 SYSTEM_PROMPT_FILE 覆盖；文件缺失回退内置兜底
 
 /** 流式回调集合 */
 export interface StreamCallbacks {
