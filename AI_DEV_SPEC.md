@@ -373,6 +373,16 @@
 - **D11 核实**（web 搜索 + 本地 node_modules 类型源码双确认）：SDK 52 `expo-constants` 的 `Constants.expoConfig` 类型含 `hostUri?: string`，注释明确"Only present during development using @expo/cli"（expo-constants/build/Constants.types.d.ts:158-163）
 - **真机连不上 WS 排查清单**（给用户）：①地址须为 `ws://<电脑局域网IP>:8080/ws`（现在自动推导）②电脑需自己启动 server：`cd server && npm run dev`（D13：AI 不代启）③手机与电脑须同一 Wi-Fi/局域网 ④Windows 防火墙需放行 Node.js 入站 8080（首次启动通常弹窗，选"允许"；或 `netsh advfirewall firewall add rule` 专规则）
 
+### 2026-09-23（三续）— 修复智谱 429 限流：服务端指数退避重试
+- 用户现象：手机发送"你好，你是谁？"后返回 `LLM_FAILED` 429"该模型当前访问量过大"（截图）
+- 根因：智谱 GLM-4.7-Flash 免费版高峰期存在并发/速率限流（开发日志 2026-09-22 已记录 code 1305），SDK 默认 `maxRetries:1` 不足以应对，且之前没有指数退避，直接抛给用户
+- **修复**（`server/src/services/llmService.ts`）：
+  - 新增 `MAX_ATTEMPTS = 3`、`RETRY_BASE_MS = 800`（退避 800ms → 1600ms → 3200ms）
+  - `isRateLimitError` 识别 `OpenAI.APIError.status === 429` 或 message 含"429"/"访问量过大"/"rate_limit"
+  - `streamLlmReply` 内层加 `for` 重试循环，仅对 429 指数退避重试；非 429 或重试耗尽仍抛出 `LLM_FAILED`；abort 信号中断时停止重试并返回空文本
+- **限制说明**：重试只能缓解不能根除；若免费模型持续限流，需：①错峰使用 ②申请多个 Key 轮询 ③换付费/更高并发模型
+- 自检：server typecheck 0 错误
+
 ---
 
 ## 使用说明（给 AI）

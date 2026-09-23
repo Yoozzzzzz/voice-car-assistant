@@ -46,6 +46,12 @@ export interface StreamCallbacks {
   onDelta: (text: string) => void;
 }
 
+/** 最大重试次数（含首次） */
+const MAX_ATTEMPTS = 3;
+
+/** 重试基础间隔（ms），指数退避：800 → 1600 → 3200 */
+const RETRY_BASE_MS = 800;
+
 /** 调用结果 */
 export interface LlmResult {
   /** 完整正文（不含思考过程） */
@@ -108,6 +114,21 @@ async function serialized<T>(task: () => Promise<T>): Promise<T> {
  * @param signal 中断信号（客户端 interrupt 时 T1.7 触发）
  * @returns 完整正文与耗时；失败抛 LlmError（调用方映射 error(LLM_FAILED)）
  */
+/** 是否 429 限流可重试 */
+function isRateLimitError(err: unknown): boolean {
+  if (err instanceof OpenAI.APIError && err.status === 429) return true;
+  if (err instanceof Error) {
+    const m = err.message;
+    return m.includes('429') || m.includes('访问量过大') || m.includes('rate_limit') || m.includes('Rate limit');
+  }
+  return false;
+}
+
+/** 指数退避等待 */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function streamLlmReply(
   userText: string,
   history: LlmMessage[],
@@ -126,60 +147,79 @@ export async function streamLlmReply(
     { role: 'user', content: userText },
   ];
 
-  try {
-    return await serialized(async () => {
-      let fullText = '';
-      let reasoningChars = 0;
-
-      // 智谱扩展参数：关闭思维链（D11 核实 2026-09-22 官方文档）
-      //   - thinking.type 仅 enabled/disabled，默认 enabled，GLM-4.7 开启后强制思考
-      //   - 思考内容与正文共用 max_tokens 输出额度（实测 872 字思考耗尽 512 上限导致正文为空）
-      //   - 车机低延迟场景必须禁用；openai SDK 类型不含此字段，故基础参数走标准类型、扩展字段后置断言透传
-      const baseParams: OpenAI.Chat.ChatCompletionCreateParamsStreaming = {
-        model: config.zhipu.model,
-        messages,
-        stream: true,
-        // 思考已禁用，此上限仅约束正文；官方建议 >=1024
-        max_tokens: 1024,
-        temperature: 0.7,
-      };
-      const params = {
-        ...baseParams,
-        thinking: { type: 'disabled' },
-      } as OpenAI.Chat.ChatCompletionCreateParamsStreaming;
-
-      const stream = await client.chat.completions.create(params, { signal });
-
-      for await (const chunk of stream) {
-        // 思考过程（混合思考模型）：忽略，不进正文
-        const reasoning = (chunk.choices[0]?.delta as { reasoning_content?: string } | undefined)
-          ?.reasoning_content;
-        if (reasoning) {
-          reasoningChars += reasoning.length;
-          continue;
-        }
-
-        const delta = chunk.choices[0]?.delta?.content;
-        if (delta) {
-          fullText += delta;
-          callbacks.onDelta(delta);
-        }
-      }
-
-      if (reasoningChars > 0) {
-        logger.debug({ reasoningChars }, 'LLM 思考过程已过滤');
-      }
-
-      return { fullText, elapsedMs: Date.now() - startMs };
-    });
-  } catch (err) {
-    // 中断不算错误，正常返回空结果由调用方处理
-    if (signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
-      logger.info('LLM 请求被中断（客户端 interrupt）');
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    if (signal?.aborted) {
+      logger.info('LLM 请求被中断（客户端 interrupt），停止重试');
       return { fullText: '', elapsedMs: Date.now() - startMs };
     }
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.error({ err }, 'LLM 流式调用失败');
-    throw new LlmError(`LLM 调用失败: ${msg}`, err);
+
+    try {
+      return await serialized(async () => {
+        let fullText = '';
+        let reasoningChars = 0;
+
+        // 智谱扩展参数：关闭思维链（D11 核实 2026-09-22 官方文档）
+        //   - thinking.type 仅 enabled/disabled，默认 enabled，GLM-4.7 开启后强制思考
+        //   - 思考内容与正文共用 max_tokens 输出额度（实测 872 字思考耗尽 512 上限导致正文为空）
+        //   - 车机低延迟场景必须禁用；openai SDK 类型不含此字段，故基础参数走标准类型、扩展字段后置断言透传
+        const baseParams: OpenAI.Chat.ChatCompletionCreateParamsStreaming = {
+          model: config.zhipu.model,
+          messages,
+          stream: true,
+          // 思考已禁用，此上限仅约束正文；官方建议 >=1024
+          max_tokens: 1024,
+          temperature: 0.7,
+        };
+        const params = {
+          ...baseParams,
+          thinking: { type: 'disabled' },
+        } as OpenAI.Chat.ChatCompletionCreateParamsStreaming;
+
+        const stream = await client.chat.completions.create(params, { signal });
+
+        for await (const chunk of stream) {
+          // 思考过程（混合思考模型）：忽略，不进正文
+          const reasoning = (chunk.choices[0]?.delta as { reasoning_content?: string } | undefined)
+            ?.reasoning_content;
+          if (reasoning) {
+            reasoningChars += reasoning.length;
+            continue;
+          }
+
+          const delta = chunk.choices[0]?.delta?.content;
+          if (delta) {
+            fullText += delta;
+            callbacks.onDelta(delta);
+          }
+        }
+
+        if (reasoningChars > 0) {
+          logger.debug({ reasoningChars }, 'LLM 思考过程已过滤');
+        }
+
+        return { fullText, elapsedMs: Date.now() - startMs };
+      });
+    } catch (err) {
+      // 中断不算错误，正常返回空结果由调用方处理
+      if (signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
+        logger.info('LLM 请求被中断（客户端 interrupt）');
+        return { fullText: '', elapsedMs: Date.now() - startMs };
+      }
+      lastErr = err;
+      if (isRateLimitError(err) && attempt < MAX_ATTEMPTS - 1) {
+        const delay = RETRY_BASE_MS * 2 ** attempt;
+        logger.warn({ attempt, delay, err }, 'LLM 429 限流，自动指数退避重试');
+        await sleep(delay);
+        continue;
+      }
+      // 非 429 或已达最大重试：直接抛出
+      throw err;
+    }
   }
+
+  // 不可达保险：循环结束仍未返回说明全部被吞，抛出最后一次错误
+  const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+  logger.error({ err: lastErr }, 'LLM 流式调用失败（重试耗尽）');
+  throw new LlmError(`LLM 调用失败: ${msg}`, lastErr);
 }
