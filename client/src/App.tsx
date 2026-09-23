@@ -85,6 +85,8 @@ export default function App() {
         return [...prev, { id: nextId(), role: 'assistant', text: msg.fullText }];
       });
       setSending(false);
+    } else if (msg.type === 'conversation_reset') {
+      // 服务端已清除历史（本地消息在按钮点击时已清），无需处理
     } else if (msg.type === 'error') {
       setLlmStatus(null);
       setMessages((prev) => [
@@ -126,6 +128,14 @@ export default function App() {
     setSending(true);
   }, [input, sending]);
 
+  /** 开启新对话：清服务端历史 + 清本地消息显示 */
+  const handleNewConversation = useCallback(() => {
+    wsRef.current?.startNewConversation();
+    setMessages([]);
+    setLlmStatus(null);
+    setSending(false);
+  }, []);
+
   /** 连接 / 断开（按当前状态切换） */
   const handleToggleConnect = useCallback(() => {
     const ws = wsRef.current;
@@ -142,12 +152,21 @@ export default function App() {
 
   return (
     <View style={styles.container}>
-      {/* 顶栏：标题 + 连接状态 */}
+      {/* 顶栏：标题 + 连接状态 + 新对话 */}
       <View style={styles.header}>
         <Text style={styles.title}>车机语音助手</Text>
-        <View style={styles.statusWrap}>
-          <View style={[styles.statusDot, { backgroundColor: info.color }]} />
-          <Text style={[styles.statusText, { color: info.color }]}>{info.label}</Text>
+        <View style={styles.headerRight}>
+          <Pressable
+            style={[styles.newChatBtn, status !== 'connected' ? styles.newChatBtnDisabled : null]}
+            onPress={handleNewConversation}
+            disabled={status !== 'connected'}
+          >
+            <Text style={styles.newChatBtnText}>新对话</Text>
+          </Pressable>
+          <View style={styles.statusWrap}>
+            <View style={[styles.statusDot, { backgroundColor: info.color }]} />
+            <Text style={[styles.statusText, { color: info.color }]}>{info.label}</Text>
+          </View>
         </View>
       </View>
 
@@ -254,6 +273,25 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: '#ffffff',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  newChatBtn: {
+    borderWidth: 1,
+    borderColor: '#1976d2',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  newChatBtnDisabled: {
+    borderColor: '#444444',
+  },
+  newChatBtnText: {
+    color: '#7fb8ee',
+    fontSize: 13,
   },
   statusWrap: {
     flexDirection: 'row',

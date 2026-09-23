@@ -45,6 +45,15 @@ export const config = {
     silenceMs: Number(process.env.VAD_SILENCE_MS) || 800,
     vadEosMs: Number(process.env.VAD_EOS_MS) || 800,
   },
+  // 对话记忆策略（2026-09-23 用户确认语义：每次唤醒=新对话，持续对话内保留记忆）
+  conversation: {
+    // 单次对话保留的最大历史消息数（user+assistant 计），防超上下文
+    historyMaxMessages: 10,
+    // 静默超时（ms）：超过该时长无用户内容消息，下一条视为新对话（对应"每次唤醒新对话"）
+    idleResetMs: 5 * 60_000,
+    // 断线后历史保留时长（ms）：TTL 内重连恢复记忆（持续对话不因网络闪断失忆）
+    reconnectHistoryTtlMs: 5 * 60_000,
+  },
 } as const;
 
 /**

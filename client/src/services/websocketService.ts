@@ -93,6 +93,16 @@ export class WebSocketService {
     return this.send({ type: 'text', sessionId: this.sessionId, data: text, timestamp: Date.now() });
   }
 
+  /** 开启新对话（清除服务端会话历史，对应车机"每次唤醒 = 新对话"）；未连接返回 false */
+  startNewConversation(): boolean {
+    return this.send({
+      type: 'control',
+      sessionId: this.sessionId,
+      action: 'new_conversation',
+      timestamp: Date.now(),
+    });
+  }
+
   /** 序列化并发送（内部通用） */
   private send(msg: ClientMessage): boolean {
     if (!this.connected || this.ws === null) return false;

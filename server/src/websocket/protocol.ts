@@ -87,11 +87,12 @@ export interface ClientTextMessage {
 
 /**
  * 控制消息（保留扩展位；常规流程用 audio.isLast 标记本轮结束已足够）
+ *   - new_conversation: 开启新对话（清除服务端会话历史），对应车机"每次唤醒 = 新对话"语义
  */
 export interface ClientControlMessage {
   type: 'control';
   sessionId: string;
-  action: 'recording_start' | 'recording_end' | 'interrupt';
+  action: 'recording_start' | 'recording_end' | 'interrupt' | 'new_conversation';
   timestamp: number;
 }
 
@@ -120,6 +121,7 @@ export type ServerMessageType =
   | 'llm_end'       // LLM 流结束（含完整文本）
   | 'llm_retry'     // LLM 429 限流重试进度通知（2026-09-23 新增）
   | 'tts_audio'     // TTS 音频（按句：每句 1 条消息，独立可播放）
+  | 'conversation_reset' // 新对话确认（2026-09-23 新增）
   | 'pong'          // 心跳响应
   | 'error';        // 错误
 
@@ -189,6 +191,15 @@ export interface ServerTtsAudioMessage {
 }
 
 /**
+ * 新对话确认（服务端收到 control.new_conversation 并清除历史后回执）
+ */
+export interface ServerConversationResetMessage {
+  type: 'conversation_reset';
+  sessionId: string;
+  timestamp: number;
+}
+
+/**
  * 心跳响应
  */
 export interface ServerPongMessage {
@@ -214,6 +225,7 @@ export type ServerMessage =
   | ServerLlmEndMessage
   | ServerLlmRetryMessage
   | ServerTtsAudioMessage
+  | ServerConversationResetMessage
   | ServerPongMessage
   | ServerErrorMessage;
 

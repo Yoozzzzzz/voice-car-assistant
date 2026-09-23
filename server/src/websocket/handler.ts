@@ -16,6 +16,7 @@
 import type { WebSocket } from 'ws';
 import type {
   ClientMessage,
+  ServerConversationResetMessage,
   ServerErrorMessage,
   ServerLlmChunkMessage,
   ServerLlmEndMessage,
@@ -24,10 +25,8 @@ import type {
 } from './protocol.js';
 import type { Session, SessionManager } from './session.js';
 import { streamLlmReply } from '../services/llmService.js';
+import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
-
-/** 会话保留的最大历史消息数（user+assistant 计，防超上下文） */
-const MAX_HISTORY_MESSAGES = 10;
 
 /** 构造 error 消息（服务端 → 客户端） */
 function buildErrorMessage(code: ServerErrorMessage['code'], message: string, sessionId?: string): ServerErrorMessage {
@@ -55,7 +54,8 @@ function isValidClientMessage(raw: unknown): raw is ClientMessage {
     case 'text':
       return typeof obj.data === 'string';
     case 'control':
-      return obj.action === 'recording_start' || obj.action === 'recording_end' || obj.action === 'interrupt';
+      return obj.action === 'recording_start' || obj.action === 'recording_end' || obj.action === 'interrupt'
+        || obj.action === 'new_conversation';
     case 'ping':
       return true;
     default:
@@ -94,7 +94,7 @@ export function handleMessage(sessions: SessionManager, ws: WebSocket, raw: stri
   sessions.touch(session);
 
   try {
-    dispatch(session, parsed);
+    dispatch(sessions, session, parsed);
   } catch (err) {
     // 分发过程任何异常：兜底 error，不崩服务（验收标准）
     logger.error({ err, sessionId: session.sessionId }, '消息分发异常');
@@ -103,7 +103,7 @@ export function handleMessage(sessions: SessionManager, ws: WebSocket, raw: stri
 }
 
 /** 按消息类型路由 */
-function dispatch(session: Session, msg: ClientMessage): void {
+function dispatch(sessions: SessionManager, session: Session, msg: ClientMessage): void {
   switch (msg.type) {
     case 'ping': {
       // 心跳：立即回 pong，刷新心跳时间
@@ -131,6 +131,15 @@ function dispatch(session: Session, msg: ClientMessage): void {
         safeSend(session.ws, buildErrorMessage('RATE_LIMIT', '上一条回复仍在生成中，请稍候', session.sessionId));
         break;
       }
+
+      // 对话静默超时：超过 idleResetMs 无用户内容消息，本条视为新对话（对应"每次唤醒新对话"）
+      const idleMs = Date.now() - session.lastContentAt;
+      session.lastContentAt = Date.now();
+      if (session.history.length > 0 && idleMs > config.conversation.idleResetMs) {
+        session.history = [];
+        logger.info({ sessionId: session.sessionId, idleMs }, '对话静默超时，自动开启新对话');
+      }
+
       session.llmInFlight = true;
       logger.info({ sessionId: session.sessionId, len: text.length }, '收到文本消息，进入 LLM 流式管线');
 
@@ -164,8 +173,8 @@ function dispatch(session: Session, msg: ClientMessage): void {
             { role: 'user', content: text },
             { role: 'assistant', content: result.fullText },
           );
-          if (session.history.length > MAX_HISTORY_MESSAGES) {
-            session.history.splice(0, session.history.length - MAX_HISTORY_MESSAGES);
+          if (session.history.length > config.conversation.historyMaxMessages) {
+            session.history.splice(0, session.history.length - config.conversation.historyMaxMessages);
           }
           const end: ServerLlmEndMessage = {
             type: 'llm_end',
@@ -208,6 +217,18 @@ function dispatch(session: Session, msg: ClientMessage): void {
         { sessionId: session.sessionId, action: msg.action },
         '收到控制消息',
       );
+      if (msg.action === 'new_conversation') {
+        // 开启新对话（车机"每次唤醒 = 新对话"语义）：清历史 + 清断线缓存
+        session.history = [];
+        sessions.clearHistoryCache(session.sessionId);
+        const ack: ServerConversationResetMessage = {
+          type: 'conversation_reset',
+          sessionId: session.sessionId,
+          timestamp: Date.now(),
+        };
+        safeSend(session.ws, ack);
+        logger.info({ sessionId: session.sessionId }, '已开启新对话（历史已清除）');
+      }
       if (msg.action === 'interrupt') {
         // TODO-T1.7：中断当前 LLM 流 + 停止 TTS 推送
         logger.info({ sessionId: session.sessionId }, 'interrupt 暂未实现（T1.7）');

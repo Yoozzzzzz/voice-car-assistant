@@ -25,7 +25,15 @@ export interface ClientPingMessage {
   timestamp: number;
 }
 
-export type ClientMessage = ClientTextMessage | ClientPingMessage;
+/** 控制消息（当前仅用 new_conversation：开启新对话，清除服务端会话历史） */
+export interface ClientControlMessage {
+  type: 'control';
+  sessionId: string;
+  action: 'recording_start' | 'recording_end' | 'interrupt' | 'new_conversation';
+  timestamp: number;
+}
+
+export type ClientMessage = ClientTextMessage | ClientControlMessage | ClientPingMessage;
 
 // ==========================================
 // 服务端 → 客户端
@@ -84,10 +92,18 @@ export interface ServerErrorMessage {
   timestamp: number;
 }
 
+/** 新对话确认（服务端清除历史后回执） */
+export interface ServerConversationResetMessage {
+  type: 'conversation_reset';
+  sessionId: string;
+  timestamp: number;
+}
+
 export type ServerMessage =
   | ServerLlmChunkMessage
   | ServerLlmEndMessage
   | ServerLlmRetryMessage
+  | ServerConversationResetMessage
   | ServerPongMessage
   | ServerErrorMessage;
 
@@ -117,6 +133,8 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       return typeof obj.retry === 'number' && typeof obj.maxRetries === 'number'
         ? (obj as unknown as ServerLlmRetryMessage)
         : null;
+    case 'conversation_reset':
+      return (obj as unknown as ServerConversationResetMessage);
     case 'pong':
       return (obj as unknown as ServerPongMessage);
     case 'error':

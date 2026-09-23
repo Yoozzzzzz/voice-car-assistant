@@ -392,6 +392,17 @@
 - **客户端**（`App.tsx`）：`llmStatus` 状态——收到 `llm_retry` 显示"模型限流，正在重试（N/M）…"（输入框上方琥珀色横幅）；收到首个 `llm_chunk` / `llm_end` / `error` 时清除；失败原因经 `error` 气泡展示（`[错误 LLM_FAILED] 模型访问量过大…`）
 - 自检：双端 typecheck 0 错误；重试真实触发依赖智谱高峰期限流，待用户实测观察
 
+### 2026-09-23（五续）— 对话记忆语义落地：每次唤醒=新对话，持续对话内保留记忆（用户确认）
+- 用户确认产品语义：车机每次唤醒是**新对话**；**持续对话中**记忆保留。原实现缺陷：①连接不断开历史无限累积，无"新对话"机制；②断线重连/服务重启历史即失忆，持续对话被网络闪断打断
+- **实现**：
+  - 协议：`ClientControlMessage.action` 新增 `new_conversation`；新增服务端回执 `ServerConversationResetMessage { type:'conversation_reset' }`（双端 protocol.ts + 《项目文档》3.2 已同步）
+  - `server/src/config.ts` 新增 `conversation` 配置块（D3）：`historyMaxMessages=10`、`idleResetMs=5min`、`reconnectHistoryTtlMs=5min`
+  - `session.ts`：断线历史缓存（TTL 5min 内重连恢复记忆，含同 sessionId 踢旧连接时直接继承历史）；Session 新增 `lastContentAt`（仅 text/audio 计入，心跳 ping 不影响静默判定）
+  - `handler.ts`：①显式 `new_conversation` → 清历史+清缓存+回执；②**静默超时**：距上一条用户内容消息超 5min，下一条自动视为新对话（对应"每次唤醒"）
+  - 客户端：顶栏新增"新对话"按钮（发送 control.new_conversation + 清本地消息）
+- **记忆规则（当前最终语义）**：单次对话内保留最近 10 条上下文；静默超 5 分钟或点"新对话"→ 重新开始；断线 5 分钟内重连→ 记忆恢复；超时/服务重启→ 新对话。阶段二语音链路接入后：**唤醒词触发即发 new_conversation**（T2.6）
+- 自检：双端 typecheck 0 错误（修复一处 dispatch 未传递 SessionManager 的编译错误）
+
 ---
 
 ## 使用说明（给 AI）
