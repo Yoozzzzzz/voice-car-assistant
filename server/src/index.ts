@@ -18,6 +18,7 @@ import express from 'express';
 import { logger } from './utils/logger.js';
 import { config, validateConfig } from './config.js';
 import { initWebSocketServer, shutdownWebSocket, sessionManager } from './websocket/wsServer.js';
+import { getActiveLlmProvider } from './services/llmService.js';
 
 // 启动校验：缺失 Key 仅警告不阻塞（骨架阶段允许，阶段一联调前必须补齐）
 validateConfig();
@@ -36,6 +37,8 @@ app.get('/health', (_req, res) => {
     timestamp: Date.now(),
     uptime: Math.round(process.uptime()),
     wsSessions: sessionManager.size,
+    // 当前激活的 LLM 供应商与模型（切换 LLM_PROVIDER 后重启生效）
+    llm: getActiveLlmProvider(),
   });
 });
 

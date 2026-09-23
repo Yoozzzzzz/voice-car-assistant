@@ -11,11 +11,21 @@ export const config = {
     port: Number(process.env.PORT) || 8080,
     host: process.env.HOST || '0.0.0.0',
   },
+  // LLM 供应商选择：zhipu（智谱 GLM，默认） | doubao（火山方舟豆包 Seed）
+  llmProvider: (process.env.LLM_PROVIDER || 'zhipu') as 'zhipu' | 'doubao',
   // 智谱 LLM（OpenAI 兼容接口，glm-4.7-flash 永久免费）
   zhipu: {
     apiKey: process.env.ZHIPU_API_KEY || '',
     baseURL: process.env.ZHIPU_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4/',
     model: process.env.ZHIPU_MODEL || 'glm-4.7-flash',
+  },
+  // 火山方舟豆包 LLM（OpenAI 兼容接口）
+  // D11 核实（2026-09-23 火山引擎官方文档）：baseURL https://ark.cn-beijing.volces.com/api/v3
+  //   模型 ID：doubao-seed-2-0-mini-260428（Seed 2.0 mini，深度思考模型，也可填 Endpoint ID ep-xxx）
+  doubao: {
+    apiKey: process.env.DOUBAO_API_KEY || '',
+    baseURL: process.env.DOUBAO_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3',
+    model: process.env.DOUBAO_MODEL || 'doubao-seed-2-0-mini-260428',
   },
   // 讯飞 ASR（语音听写 WebAPI）
   xunfeiAsr: {
@@ -63,7 +73,13 @@ export const config = {
  */
 export function validateConfig(): void {
   const missing: string[] = [];
-  if (!config.zhipu.apiKey) missing.push('ZHIPU_API_KEY（LLM 调用将失败）');
+  // LLM：仅校验当前激活的供应商（LLM_PROVIDER）
+  if (config.llmProvider === 'zhipu' && !config.zhipu.apiKey) {
+    missing.push('ZHIPU_API_KEY（当前 LLM_PROVIDER=zhipu，LLM 调用将失败）');
+  }
+  if (config.llmProvider === 'doubao' && !config.doubao.apiKey) {
+    missing.push('DOUBAO_API_KEY（当前 LLM_PROVIDER=doubao，LLM 调用将失败）');
+  }
   if (!config.xunfeiAsr.appId) missing.push('XUNFEI_APP_ID（ASR）');
   if (!config.xunfeiAsr.apiKey) missing.push('XUNFEI_ASR_API_KEY');
   if (!config.xunfeiAsr.apiSecret) missing.push('XUNFEI_ASR_API_SECRET');
@@ -81,4 +97,10 @@ export function validateConfig(): void {
     // eslint-disable-next-line no-console
     console.log('[配置] 全部环境变量已就绪 ✅');
   }
+  // eslint-disable-next-line no-console
+  console.log(
+    `[配置] LLM 供应商: ${config.llmProvider} / 模型: ${
+      config.llmProvider === 'doubao' ? config.doubao.model : config.zhipu.model
+    }`,
+  );
 }

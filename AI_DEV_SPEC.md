@@ -222,7 +222,7 @@
 **关键架构约定（来自《项目文档》，开发时遵守）**：
 - 通信：WebSocket wss://，全双工；消息 JSON 格式，音频 base64
 - 音频：采集 16kHz/16bit/单声道 PCM，200ms chunk；VAD 静音 800ms 断句
-- LLM：智谱 glm-4.7-flash，OpenAI 兼容接口，流式，回复≤50字系统 Prompt
+- LLM：多供应商（`LLM_PROVIDER=zhipu|doubao`）——智谱 glm-4.7-flash（默认）/ 豆包 doubao-seed-2-0-mini-260428，均为 OpenAI 兼容接口，流式，回复≤50字系统 Prompt；深度思考需显式 disabled
 - 流式管线：LLM 流式文本按句切分→边收边 TTS（延迟达标关键）
 
 ---
@@ -402,6 +402,21 @@
   - 客户端：顶栏新增"新对话"按钮（发送 control.new_conversation + 清本地消息）
 - **记忆规则（当前最终语义）**：单次对话内保留最近 10 条上下文；静默超 5 分钟或点"新对话"→ 重新开始；断线 5 分钟内重连→ 记忆恢复；超时/服务重启→ 新对话。阶段二语音链路接入后：**唤醒词触发即发 new_conversation**（T2.6）
 - 自检：双端 typecheck 0 错误（修复一处 dispatch 未传递 SessionManager 的编译错误）
+
+### 2026-09-23（六续）— 新增豆包 LLM 供应商（Seed 2.0 mini，火山方舟）
+- 用户指令：增加豆包的 seed 2 mini 模型。落地形式 = 多 LLM 供应商架构（`LLM_PROVIDER=zhipu|doubao`），不再绑定单一厂商
+- **D11 核实（web 搜索，来源：火山引擎官方文档 volcengine.com/docs/82379 与方舟模型公告）**：
+  - 端点：`https://ark.cn-beijing.volces.com/api/v3`（OpenAI 兼容 chat/completions）；鉴权 `ARK_API_KEY`（控制台 apikey 页获取）
+  - 模型 ID：`doubao-seed-2-0-mini-260428`（Seed 2.0 mini，轻量均衡型/深度思考模型；也支持 Endpoint ID `ep-xxx`）
+  - `thinking: {type:'enabled'|'disabled'}` 为顶层字段（另有 `reasoning_effort: minimal|low|medium|high`）；**深度思考模型默认开启思考**（与智谱 GLM-4.7 同坑），思考内容在 `reasoning_content`，与正文共用 max_tokens
+- **实现**：
+  - `config.ts`：新增 `llmProvider` 选择 + `doubao{apiKey,baseURL,model}` 配置块；`validateConfig` 改为只校验当前激活供应商的 Key，并打印激活的供应商/模型
+  - `llmService.ts`：重构为供应商无关实现——`resolveProvider()` 解析激活配置；OpenAI client 按供应商懒加载缓存；模型名/thinking 开关来自供应商配置；日志带 provider+model；`getActiveLlmProvider()` 导出
+  - `index.ts`：`/health` 增加 `llm: { provider, model }` 字段（便于确认切换生效）
+  - `.env.example`：新增 `LLM_PROVIDER` 与 `DOUBAO_API_KEY/DOUBAO_BASE_URL/DOUBAO_MODEL`，含获取步骤注释
+  - 《项目文档》2.2 技术选型 / 3.3 大模型服务 / 5.4 API Key 指南已同步
+- **切换方式**：`server/.env` 设 `LLM_PROVIDER=doubao` + `DOUBAO_API_KEY=xxx` → 重启 → `GET /health` 确认
+- 自检：server typecheck 0 错误；豆包真实调用待用户补 Key（D7 不 mock）
 
 ---
 
