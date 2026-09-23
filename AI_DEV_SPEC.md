@@ -383,6 +383,15 @@
 - **限制说明**：重试只能缓解不能根除；若免费模型持续限流，需：①错峰使用 ②申请多个 Key 轮询 ③换付费/更高并发模型
 - 自检：server typecheck 0 错误
 
+### 2026-09-23（四续）— 重试进度可视化：新增 llm_retry 协议消息（用户指令）
+- 用户指令："多轮重试的时候给用户提示（1/3）（2/3）（3/3），如果失败就显示失败原因"
+- **协议变更（X6 已同步）**：`ServerLlmRetryMessage { type:'llm_retry', retry, maxRetries }` 加入服务端/客户端两侧 protocol.ts；《项目文档》3.2 ServerMessage type 列表同步补全（llm_end/llm_retry/pong 此前也缺失）
+- **服务端**：
+  - `llmService.ts`：`MAX_ATTEMPTS=3` 语义改为 `MAX_RETRIES=3`（不含首次，总尝试 1+3=4，保证出现 1/3、2/3、3/3 三次提示）；`StreamCallbacks` 新增可选 `onRetry(retry, maxRetries)`；重试耗尽的 429 抛出友好原因"模型访问量过大（429 限流），已重试 3 次仍失败，请稍后再试"（非 429 保持原始错误信息）
+  - `handler.ts`：`onRetry` 回调 → 下发 `llm_retry` 消息
+- **客户端**（`App.tsx`）：`llmStatus` 状态——收到 `llm_retry` 显示"模型限流，正在重试（N/M）…"（输入框上方琥珀色横幅）；收到首个 `llm_chunk` / `llm_end` / `error` 时清除；失败原因经 `error` 气泡展示（`[错误 LLM_FAILED] 模型访问量过大…`）
+- 自检：双端 typecheck 0 错误；重试真实触发依赖智谱高峰期限流，待用户实测观察
+
 ---
 
 ## 使用说明（给 AI）

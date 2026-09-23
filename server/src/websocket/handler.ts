@@ -19,6 +19,7 @@ import type {
   ServerErrorMessage,
   ServerLlmChunkMessage,
   ServerLlmEndMessage,
+  ServerLlmRetryMessage,
   ServerPongMessage,
 } from './protocol.js';
 import type { Session, SessionManager } from './session.js';
@@ -144,6 +145,17 @@ function dispatch(session: Session, msg: ClientMessage): void {
             timestamp: Date.now(),
           };
           safeSend(session.ws, chunk);
+        },
+        // 429 限流重试进度：下发 llm_retry，客户端展示"重试中(N/M)"
+        onRetry: (retry, maxRetries) => {
+          const notice: ServerLlmRetryMessage = {
+            type: 'llm_retry',
+            sessionId: session.sessionId,
+            retry,
+            maxRetries,
+            timestamp: Date.now(),
+          };
+          safeSend(session.ws, notice);
         },
       })
         .then((result) => {

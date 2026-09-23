@@ -54,13 +54,18 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  /** LLM 429 限流重试进度提示（如"模型限流，正在重试（1/3）…"），回复开始/结束/失败时清除 */
+  const [llmStatus, setLlmStatus] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocketService | null>(null);
   const listRef = useRef<FlatList<ChatMessage>>(null);
 
   /** 处理服务端消息：llm_chunk 增量拼到最后一条 assistant 消息；llm_end/error 收尾 */
   const handleServerMessage = useCallback((msg: ServerMessage) => {
-    if (msg.type === 'llm_chunk') {
+    if (msg.type === 'llm_retry') {
+      setLlmStatus(`模型限流，正在重试（${msg.retry}/${msg.maxRetries}）…`);
+    } else if (msg.type === 'llm_chunk') {
+      setLlmStatus(null);
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         // 最后一条是流式中的 assistant 消息 → 追加；否则新建
@@ -70,6 +75,7 @@ export default function App() {
         return [...prev, { id: nextId(), role: 'assistant', text: msg.text, streaming: true }];
       });
     } else if (msg.type === 'llm_end') {
+      setLlmStatus(null);
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         if (last && last.role === 'assistant' && last.streaming) {
@@ -80,6 +86,7 @@ export default function App() {
       });
       setSending(false);
     } else if (msg.type === 'error') {
+      setLlmStatus(null);
       setMessages((prev) => [
         ...prev,
         { id: nextId(), role: 'assistant', text: `[错误 ${msg.code}] ${msg.message}`, streaming: false },
@@ -188,6 +195,13 @@ export default function App() {
             <Text style={styles.emptyHint}>输入文字发送给 AI 试试（需先连接服务器）</Text>
           }
         />
+
+        {/* LLM 重试进度提示 */}
+        {llmStatus !== null && (
+          <View style={styles.retryBanner}>
+            <Text style={styles.retryText}>{llmStatus}</Text>
+          </View>
+        )}
 
         {/* 输入框 + 发送按钮 */}
         <View style={styles.inputRow}>
@@ -314,6 +328,14 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 16,
     lineHeight: 22,
+  },
+  retryBanner: {
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  retryText: {
+    color: '#ffb300',
+    fontSize: 13,
   },
   inputRow: {
     flexDirection: 'row',

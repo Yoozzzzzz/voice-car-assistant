@@ -118,6 +118,7 @@ export type ServerMessageType =
   | 'asr_result'    // ASR 识别结果（中间/最终）
   | 'llm_chunk'     // LLM 流式文本片段
   | 'llm_end'       // LLM 流结束（含完整文本）
+  | 'llm_retry'     // LLM 429 限流重试进度通知（2026-09-23 新增）
   | 'tts_audio'     // TTS 音频（按句：每句 1 条消息，独立可播放）
   | 'pong'          // 心跳响应
   | 'error';        // 错误
@@ -160,6 +161,19 @@ export interface ServerLlmEndMessage {
 }
 
 /**
+ * LLM 429 限流重试进度通知
+ *   - 服务端指数退避重试期间逐次下发，客户端展示"正在重试（N/M）"
+ *   - 重试成功后正常进入 llm_chunk/llm_end；耗尽后下发 error(LLM_FAILED) 附失败原因
+ */
+export interface ServerLlmRetryMessage {
+  type: 'llm_retry';
+  sessionId: string;
+  retry: number;          // 第几次重试（从 1 开始）
+  maxRetries: number;     // 最大重试次数
+  timestamp: number;
+}
+
+/**
  * TTS 音频（按句）
  *   - 格式：WAV 头（44 字节）+ PCM 16kHz/16bit/单声道，base64 编码
  *   - 客户端可立即播放，无需等所有 TTS 完成（延迟达标关键）
@@ -198,6 +212,7 @@ export type ServerMessage =
   | ServerAsrResultMessage
   | ServerLlmChunkMessage
   | ServerLlmEndMessage
+  | ServerLlmRetryMessage
   | ServerTtsAudioMessage
   | ServerPongMessage
   | ServerErrorMessage;

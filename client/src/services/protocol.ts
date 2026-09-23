@@ -49,6 +49,15 @@ export interface ServerLlmEndMessage {
   timestamp: number;
 }
 
+/** LLM 429 限流重试进度通知（服务端指数退避重试期间逐次下发） */
+export interface ServerLlmRetryMessage {
+  type: 'llm_retry';
+  sessionId: string;
+  retry: number;
+  maxRetries: number;
+  timestamp: number;
+}
+
 /** 心跳响应 */
 export interface ServerPongMessage {
   type: 'pong';
@@ -78,6 +87,7 @@ export interface ServerErrorMessage {
 export type ServerMessage =
   | ServerLlmChunkMessage
   | ServerLlmEndMessage
+  | ServerLlmRetryMessage
   | ServerPongMessage
   | ServerErrorMessage;
 
@@ -103,6 +113,10 @@ export function parseServerMessage(raw: string): ServerMessage | null {
         : null;
     case 'llm_end':
       return typeof obj.fullText === 'string' ? (obj as unknown as ServerLlmEndMessage) : null;
+    case 'llm_retry':
+      return typeof obj.retry === 'number' && typeof obj.maxRetries === 'number'
+        ? (obj as unknown as ServerLlmRetryMessage)
+        : null;
     case 'pong':
       return (obj as unknown as ServerPongMessage);
     case 'error':

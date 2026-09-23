@@ -44,10 +44,12 @@ export const SYSTEM_PROMPT = [
 export interface StreamCallbacks {
   /** 每收到一段正文增量（已过滤思考内容） */
   onDelta: (text: string) => void;
+  /** 429 限流重试进度通知（第 retry 次重试 / 共 maxRetries 次），供客户端展示"重试中(N/M)" */
+  onRetry?: (retry: number, maxRetries: number) => void;
 }
 
-/** 最大重试次数（含首次） */
-const MAX_ATTEMPTS = 3;
+/** 429 限流最大重试次数（不含首次请求；总尝试 = 1 + MAX_RETRIES） */
+const MAX_RETRIES = 3;
 
 /** 重试基础间隔（ms），指数退避：800 → 1600 → 3200 */
 const RETRY_BASE_MS = 800;
@@ -148,7 +150,8 @@ export async function streamLlmReply(
   ];
 
   let lastErr: unknown;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+  // 总尝试 = 1 次首请求 + MAX_RETRIES 次重试（仅 429 限流触发重试）
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
     if (signal?.aborted) {
       logger.info('LLM 请求被中断（客户端 interrupt），停止重试');
       return { fullText: '', elapsedMs: Date.now() - startMs };
@@ -207,18 +210,30 @@ export async function streamLlmReply(
         return { fullText: '', elapsedMs: Date.now() - startMs };
       }
       lastErr = err;
-      if (isRateLimitError(err) && attempt < MAX_ATTEMPTS - 1) {
+      if (isRateLimitError(err) && attempt < MAX_RETRIES) {
+        const retry = attempt + 1; // 第几次重试（1 开始）
         const delay = RETRY_BASE_MS * 2 ** attempt;
-        logger.warn({ attempt, delay, err }, 'LLM 429 限流，自动指数退避重试');
+        logger.warn({ retry, maxRetries: MAX_RETRIES, delay }, 'LLM 429 限流，自动指数退避重试');
+        // 通知客户端重试进度（展示"重试中(N/M)"）
+        try {
+          callbacks.onRetry?.(retry, MAX_RETRIES);
+        } catch {
+          // 回调异常不影响重试流程
+        }
         await sleep(delay);
         continue;
       }
-      // 非 429 或已达最大重试：直接抛出
-      throw err;
+      // 非 429 或重试耗尽：包装为 LlmError 抛出（附人类可读失败原因）
+      const msg = err instanceof Error ? err.message : String(err);
+      const reason = isRateLimitError(err)
+        ? `模型访问量过大（429 限流），已重试 ${MAX_RETRIES} 次仍失败，请稍后再试`
+        : `LLM 调用失败: ${msg}`;
+      logger.error({ err }, 'LLM 流式调用失败');
+      throw new LlmError(reason, err);
     }
   }
 
-  // 不可达保险：循环结束仍未返回说明全部被吞，抛出最后一次错误
+  // 不可达保险：循环正常退出路径均被 return/throw 覆盖，兜底抛出最后一次错误
   const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
   logger.error({ err: lastErr }, 'LLM 流式调用失败（重试耗尽）');
   throw new LlmError(`LLM 调用失败: ${msg}`, lastErr);
